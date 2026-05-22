@@ -172,7 +172,6 @@ FILES=(
   "menu7.sh"
   "slowdns.sh"
   "socks_python.sh"
-  "KIGHMUPROXY.py"
   "udp_custom.sh"
   "dropbear.sh"
   "proxy3.js"
@@ -180,7 +179,6 @@ FILES=(
   "system_dns.sh"
   "install_modes.sh"
   "show_resources.sh"
-  "nginx.conf"
   "setup_ssh_config.sh"
   "menu4_2.sh"
   "botssh.sh"
@@ -211,8 +209,6 @@ FILES=(
   "kighmu-server.sh"
   "index.html"
   "vless_bot.py"
-  "install-vless.sh"
-  "badvpn.sh"
 )
 
 BASE_URL="https://raw.githubusercontent.com/kinf744/Kighmu/main"
