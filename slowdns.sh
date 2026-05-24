@@ -195,10 +195,10 @@ BACKEND_MODE="ssh"
 [[ -f "$DIR/backend.conf" ]] && source "$DIR/backend.conf" 2>/dev/null || true
 
 case "$BACKEND_MODE" in
-  ssh)   TARGET="127.0.0.1:22" ;;
+  ssh)   TARGET="127.0.0.1:109" ;;
   v2ray) TARGET="127.0.0.1:5401" ;;
   WS)    TARGET="127.0.0.1:80" ;;
-  *)     TARGET="127.0.0.1:22" ;;
+  *)     TARGET="127.0.0.1:109" ;;
 esac
 
 echo "[$(date '+%Y-%m-%d %H:%M:%S')] Démarrage dnstt-server → NS=$NS TARGET=$TARGET" >> "$LOG"
