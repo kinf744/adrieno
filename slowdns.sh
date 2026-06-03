@@ -260,6 +260,7 @@ iptables -t nat -I PREROUTING 1 -p tcp --dport 53 -j REDIRECT --to-ports 5300
 
 
 netfilter-persistent save
+systemctl enable slowdns
 systemctl restart slowdns
 
 log "✅ SlowDNS installé, sécurisé et compatible UDP Request"
