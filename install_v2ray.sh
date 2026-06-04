@@ -200,7 +200,6 @@ User=root
 ExecStart=/usr/local/bin/v2ray run -config /etc/v2ray/config.json
 Restart=always
 RestartSec=5s
-StartLimitIntervalSec=0
 LimitNOFILE=65536
 
 [Install]
