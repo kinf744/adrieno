@@ -61,49 +61,10 @@ ensure_dns() {
 }
 
 # ==========================================================
-# Détection automatique : GitHub lent → fallback jsDelivr
-# ==========================================================
-
-# Seuil en bytes/s en dessous duquel on considère GitHub "lent"
-SPEED_THRESHOLD=100000  # 100 Ko/s
-
-USE_JSDELIVR=false
-
-detect_best_source() {
-    echo "⚙️  Test de vitesse GitHub..."
-    local SPEED
-    SPEED=$(curl -4 -s -w "%{speed_download}" -o /dev/null --max-time 10 \
-        "https://raw.githubusercontent.com/kinf744/Kighmu/main/kighmu.sh" 2>/dev/null || echo "0")
-    # Tronquer la partie décimale
-    SPEED=${SPEED%%.*}
-
-    if [[ -z "$SPEED" || "$SPEED" -eq 0 ]]; then
-        echo "⚠️  GitHub inaccessible — utilisation de jsDelivr (CDN)"
-        USE_JSDELIVR=true
-    elif (( SPEED < SPEED_THRESHOLD )); then
-        local SPEED_KB=$(( SPEED / 1024 ))
-        echo "⚠️  GitHub lent (${SPEED_KB} Ko/s < 100 Ko/s) — utilisation de jsDelivr (CDN)"
-        USE_JSDELIVR=true
-    else
-        local SPEED_KB=$(( SPEED / 1024 ))
-        echo "✅ GitHub rapide (${SPEED_KB} Ko/s) — téléchargement direct"
-        USE_JSDELIVR=false
-    fi
-}
-
-# Construit l'URL selon la source choisie
-build_url() {
-    local file="$1"
-    if [[ "$USE_JSDELIVR" == true ]]; then
-        echo "https://cdn.jsdelivr.net/gh/kinf744/Kighmu@main/$file"
-    else
-        echo "https://raw.githubusercontent.com/kinf744/Kighmu/main/$file"
-    fi
-}
-
-# ==========================================================
 # Téléchargement sécurisé avec vérification
 # ==========================================================
+BASE_URL="https://raw.githubusercontent.com/kinf744/Kighmu/main"
+
 safe_wget() {
     local url="$1"
     local dest="$2"
@@ -122,20 +83,7 @@ safe_wget() {
         sleep 2
     done
 
-    # Si GitHub a échoué et qu'on ne l'utilisait pas déjà, tenter jsDelivr en dernier recours
-    if [[ "$USE_JSDELIVR" == false ]]; then
-        local file
-        file=$(basename "$dest")
-        local fallback_url="https://cdn.jsdelivr.net/gh/kinf744/Kighmu@main/$file"
-        echo "⚠️  Tentative fallback jsDelivr pour $label..."
-        wget --timeout=30 --tries=2 -q "$fallback_url" -O "$dest" 2>/dev/null || true
-        if [[ -s "$dest" ]]; then
-            echo "✅ $label récupéré via jsDelivr"
-            return 0
-        fi
-    fi
-
-    echo "⚠️ Erreur : $label n'a pas pu être téléchargé, mais le script continue..."
+    echo "⚠️ Erreur : $label n'a pas pu être téléchargé après $MAX_RETRIES tentatives, mais le script continue..."
     return 0
 }
 
@@ -158,9 +106,6 @@ install_package_if_missing() {
 
 # S'assurer que DNS est fonctionnel AVANT tout apt/wget
 ensure_dns
-
-# Détecter la meilleure source de téléchargement (GitHub ou jsDelivr)
-detect_best_source
 
 apt-get update -y
 apt-get install dnsutils -y
@@ -347,9 +292,8 @@ FILES=(
 )
 
 for file in "${FILES[@]}"; do
-  local_url=$(build_url "$file")
   echo "Téléchargement de $file ..."
-  safe_wget "$local_url" "$INSTALL_DIR/$file" "$file"
+  safe_wget "$BASE_URL/$file" "$INSTALL_DIR/$file" "$file"
   if [[ -s "$INSTALL_DIR/$file" ]]; then
     chmod +x "$INSTALL_DIR/$file"
   fi
