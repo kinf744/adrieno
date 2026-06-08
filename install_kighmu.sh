@@ -5,8 +5,6 @@
 # Licence MIT (version française)
 # ==============================================
 
-set -o errexit
-set -o nounset
 set -o pipefail
 
 # ==========================================================
