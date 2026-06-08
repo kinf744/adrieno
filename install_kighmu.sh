@@ -9,6 +9,138 @@ set -o errexit
 set -o nounset
 set -o pipefail
 
+# ==========================================================
+# CORRECTIF: Assurer DNS/réseau fonctionnel dès le départ
+# ==========================================================
+ensure_dns() {
+    echo "⚙️  Vérification DNS/réseau avant installation..."
+
+    # 1. Vérifier connectivité internet basique
+    if ! ping -c 1 -W 3 8.8.8.8 &>/dev/null; then
+        echo "❌ Pas de connectivité réseau (ping 8.8.8.8 échoue)"
+        echo "   Vérifiez votre interface réseau: ip route show"
+        exit 1
+    fi
+    echo "✅ Connectivité réseau OK"
+
+    # 2. Démarrer systemd-resolved si nécessaire
+    if systemctl list-unit-files systemd-resolved.service &>/dev/null; then
+        if ! systemctl is-active --quiet systemd-resolved 2>/dev/null; then
+            echo "⚠️  systemd-resolved inactif — démarrage..."
+            systemctl start systemd-resolved 2>/dev/null || true
+            systemctl enable systemd-resolved 2>/dev/null || true
+            sleep 2
+        fi
+    fi
+
+    # 3. Vérifier/réparer le lien symbolique resolv.conf
+    if [[ ! -e /etc/resolv.conf ]]; then
+        echo "⚠️  /etc/resolv.conf absent — création..."
+        if [[ -f /run/systemd/resolve/stub-resolv.conf ]]; then
+            ln -sf /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf
+        else
+            echo -e "nameserver 8.8.8.8\nnameserver 1.1.1.1" > /etc/resolv.conf
+        fi
+        sleep 1
+    fi
+
+    # 4. Tester la résolution DNS
+    if ! getent hosts github.com &>/dev/null; then
+        echo "⚠️  Résolution DNS échoue — basculement sur DNS statique..."
+        rm -f /etc/resolv.conf
+        echo -e "nameserver 8.8.8.8\nnameserver 1.1.1.1" > /etc/resolv.conf
+        sleep 1
+        if ! getent hosts github.com &>/dev/null; then
+            echo "❌ DNS toujours non fonctionnel après réparation. Abandon."
+            exit 1
+        fi
+        echo "✅ DNS réparé (8.8.8.8 / 1.1.1.1)"
+    fi
+
+    echo "✅ DNS/réseau opérationnel"
+}
+
+# ==========================================================
+# Détection automatique : GitHub lent → fallback jsDelivr
+# ==========================================================
+
+# Seuil en bytes/s en dessous duquel on considère GitHub "lent"
+SPEED_THRESHOLD=100000  # 100 Ko/s
+
+USE_JSDELIVR=false
+
+detect_best_source() {
+    echo "⚙️  Test de vitesse GitHub..."
+    local SPEED
+    SPEED=$(curl -4 -s -w "%{speed_download}" -o /dev/null --max-time 10 \
+        "https://raw.githubusercontent.com/kinf744/Kighmu/main/kighmu.sh" 2>/dev/null || echo "0")
+    # Tronquer la partie décimale
+    SPEED=${SPEED%%.*}
+
+    if [[ -z "$SPEED" || "$SPEED" -eq 0 ]]; then
+        echo "⚠️  GitHub inaccessible — utilisation de jsDelivr (CDN)"
+        USE_JSDELIVR=true
+    elif (( SPEED < SPEED_THRESHOLD )); then
+        local SPEED_KB=$(( SPEED / 1024 ))
+        echo "⚠️  GitHub lent (${SPEED_KB} Ko/s < 100 Ko/s) — utilisation de jsDelivr (CDN)"
+        USE_JSDELIVR=true
+    else
+        local SPEED_KB=$(( SPEED / 1024 ))
+        echo "✅ GitHub rapide (${SPEED_KB} Ko/s) — téléchargement direct"
+        USE_JSDELIVR=false
+    fi
+}
+
+# Construit l'URL selon la source choisie
+build_url() {
+    local file="$1"
+    if [[ "$USE_JSDELIVR" == true ]]; then
+        echo "https://cdn.jsdelivr.net/gh/kinf744/Kighmu@main/$file"
+    else
+        echo "https://raw.githubusercontent.com/kinf744/Kighmu/main/$file"
+    fi
+}
+
+# ==========================================================
+# Téléchargement sécurisé avec vérification
+# ==========================================================
+safe_wget() {
+    local url="$1"
+    local dest="$2"
+    local label="${3:-$(basename "$dest")}"
+    local MAX_RETRIES=3
+    local attempt=0
+
+    while (( attempt < MAX_RETRIES )); do
+        (( attempt++ ))
+        wget --timeout=30 --tries=1 -q "$url" -O "$dest" 2>/dev/null || true
+        if [[ -s "$dest" ]]; then
+            return 0
+        fi
+        echo "⚠️  $label vide (tentative $attempt/$MAX_RETRIES) — nouvel essai..."
+        rm -f "$dest"
+        sleep 2
+    done
+
+    # Si GitHub a échoué et qu'on ne l'utilisait pas déjà, tenter jsDelivr en dernier recours
+    if [[ "$USE_JSDELIVR" == false ]]; then
+        local file
+        file=$(basename "$dest")
+        local fallback_url="https://cdn.jsdelivr.net/gh/kinf744/Kighmu@main/$file"
+        echo "⚠️  Tentative fallback jsDelivr pour $label..."
+        wget --timeout=30 --tries=2 -q "$fallback_url" -O "$dest" 2>/dev/null || true
+        if [[ -s "$dest" ]]; then
+            echo "✅ $label récupéré via jsDelivr"
+            return 0
+        fi
+    fi
+
+    echo "⚠️ Erreur : $label n'a pas pu être téléchargé, mais le script continue..."
+    return 0
+}
+
+# ==========================================================
+
 echo "Vérification et installation de curl si nécessaire..."
 
 install_package_if_missing() {
@@ -23,6 +155,12 @@ install_package_if_missing() {
   fi
   set -e
 }
+
+# S'assurer que DNS est fonctionnel AVANT tout apt/wget
+ensure_dns
+
+# Détecter la meilleure source de téléchargement (GitHub ou jsDelivr)
+detect_best_source
 
 apt-get update -y
 apt-get install dnsutils -y
@@ -70,14 +208,12 @@ echo "Enregistrement AAAA (IPv6)  du domaine : ${DOMAIN_AAAA:-aucun}"
 
 MISMATCH=true
 
-# Cas IPv4 : si le serveur a une IPv4 publique, on vérifie le A
 if [[ -n "$IPV4_PUBLIC" ]]; then
   if [[ "$DOMAIN_A" == "$IPV4_PUBLIC" ]]; then
     MISMATCH=false
   fi
 fi
 
-# Cas IPv6 : si le serveur a une IPv6 publique, on vérifie le AAAA
 if [[ -n "$IPV6_PUBLIC" ]]; then
   if [[ "$DOMAIN_AAAA" == "$IPV6_PUBLIC" ]]; then
     MISMATCH=false
@@ -210,14 +346,11 @@ FILES=(
   "vless_bot.py"
 )
 
-BASE_URL="https://raw.githubusercontent.com/kinf744/Kighmu/main"
-
 for file in "${FILES[@]}"; do
+  local_url=$(build_url "$file")
   echo "Téléchargement de $file ..."
-  wget -q --show-progress -O "$INSTALL_DIR/$file" "$BASE_URL/$file"
-  if [[ ! -s "$INSTALL_DIR/$file" ]]; then
-    echo "⚠️ Erreur : le fichier $file n'a pas été téléchargé correctement ou est vide, mais le script continue..."
-  else
+  safe_wget "$local_url" "$INSTALL_DIR/$file" "$file"
+  if [[ -s "$INSTALL_DIR/$file" ]]; then
     chmod +x "$INSTALL_DIR/$file"
   fi
 done
@@ -235,23 +368,20 @@ if [[ -f "$CLEAN_SCRIPT" ]]; then
 
   CRON_JOB="*/10 * * * * $CLEAN_SCRIPT >> /var/log/auto-clean.log 2>&1"
 
-  # Vérifie si le cron existe déjà
   if crontab -l 2>/dev/null | grep -Fq "$CLEAN_SCRIPT"; then
       echo "Cron déjà configuré pour le nettoyage automatique."
   else
-      # Ajoute le cron même si crontab est vide
       ( crontab -l 2>/dev/null; echo "$CRON_JOB" ) | crontab -
       echo "Cron ajouté pour le nettoyage automatique (exécution quotidienne à minuit)."
   fi
 
-  # Active et redémarre le service cron
   systemctl enable cron >/dev/null 2>&1
   systemctl restart cron >/dev/null 2>&1
 else
   echo "⚠️ Auto-clean.sh introuvable, cron non configuré."
 fi
 
-# Création du fichier ~/.kighmu_info avec les infos globales nécessaires
+# Création du fichier ~/.kighmu_info
 : "${NS:=}"
 : "${PUBLIC_KEY:=}"
 
@@ -326,14 +456,8 @@ EOF
 
 chmod +x /usr/local/bin/kighmu-panel.sh
 
-# Ajout automatique au démarrage du shell du panneau avec nettoyage écran
 if ! grep -q "kighmu-panel.sh" ~/.bashrc; then
-  echo -e "
-# Affichage automatique du panneau KIGHMU au démarrage
-clear
-/usr/local/bin/kighmu-panel.sh
-" >> ~/.bashrc
+  echo -e "\n# Affichage automatique du panneau KIGHMU au démarrage\nclear\n/usr/local/bin/kighmu-panel.sh" >> ~/.bashrc
 fi
 
-# Lancement immédiat une fois après installation
 /usr/local/bin/kighmu-panel.sh
