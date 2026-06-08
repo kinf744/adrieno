@@ -43,7 +43,7 @@ zivpn_running() {
 }
 
 # ==========================================================
-# Optimisations kernel/réseau complètes pour haut débit
+# NOUVEAU: Optimisations kernel/réseau complètes pour haut débit
 # ==========================================================
 apply_network_optimizations() {
     echo "${CYAN}⚙️  Application des optimisations réseau...${RESET}"
@@ -110,7 +110,7 @@ SYSEOF
 }
 
 # ==========================================================
-# Générer config.json optimisée (fenêtres QUIC larges)
+# NOUVEAU: Générer config.json optimisée (fenêtres QUIC larges)
 # ==========================================================
 write_optimized_config() {
     cat > "$ZIVPN_CONFIG" << 'EOF'
@@ -133,7 +133,7 @@ EOF
 }
 
 # ==========================================================
-# Générer le service systemd optimisé
+# NOUVEAU: Générer le service systemd optimisé
 # ==========================================================
 write_optimized_service() {
     cat > "/etc/systemd/system/$ZIVPN_SERVICE" << EOF
@@ -217,6 +217,7 @@ show_status_block() {
   SVC_FILE_OK=$([[ -f "/etc/systemd/system/$ZIVPN_SERVICE" ]] && echo "✅" || echo "❌")
   SVC_ACTIVE=$(systemctl is-active "$ZIVPN_SERVICE" 2>/dev/null || echo "inactif")
   PORT_OK=$(ss -lunp 2>/dev/null | grep -q ":5667" && echo "✅" || echo "❌")
+  # Vérifier si BBR est actif
   BBR_STATUS=$(sysctl net.ipv4.tcp_congestion_control 2>/dev/null | grep -q "bbr" && echo "✅ BBR" || echo "⚠️  non-BBR")
   echo "${WHITE}Service file:${RESET} $SVC_FILE_OK"
   echo "${WHITE}Service actif:${RESET} $SVC_ACTIVE"
@@ -242,291 +243,89 @@ show_status_block() {
   echo
 }
 
-# ==========================================================
-# CORRECTIF: Assurer que DNS/réseau est fonctionnel avant téléchargement
-# ==========================================================
-ensure_dns() {
-    echo "${CYAN}⚙️  Vérification DNS/réseau...${RESET}"
 
-    # 1. Vérifier connectivité internet basique
-    if ! ping -c 1 -W 3 8.8.8.8 &>/dev/null; then
-        echo "${RED}❌ Pas de connectivité réseau (ping 8.8.8.8 échoue)${RESET}"
-        echo "   Vérifiez votre interface réseau: ip route show"
-        return 1
-    fi
-
-    # 2. Démarrer systemd-resolved si nécessaire
-    if ! systemctl is-active --quiet systemd-resolved 2>/dev/null; then
-        echo "${YELLOW}⚠️  systemd-resolved inactif — démarrage...${RESET}"
-        systemctl start systemd-resolved 2>/dev/null || true
-        systemctl enable systemd-resolved 2>/dev/null || true
-        sleep 1
-    fi
-
-    # 3. Vérifier/réparer le lien symbolique resolv.conf
-    if [[ ! -e /etc/resolv.conf ]]; then
-        echo "${YELLOW}⚠️  /etc/resolv.conf absent — création du lien symbolique...${RESET}"
-        ln -sf /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf
-        sleep 1
-    fi
-
-    # 4. Tester la résolution DNS
-    if ! getent hosts github.com &>/dev/null; then
-        echo "${YELLOW}⚠️  Résolution DNS échoue — tentative de réparation...${RESET}"
-        if [[ -L /etc/resolv.conf ]]; then
-            rm -f /etc/resolv.conf
-            echo -e "nameserver 8.8.8.8\nnameserver 1.1.1.1" > /etc/resolv.conf
-        else
-            echo -e "nameserver 8.8.8.8\nnameserver 1.1.1.1" > /etc/resolv.conf
-        fi
-        sleep 1
-        if ! getent hosts github.com &>/dev/null; then
-            echo "${RED}❌ DNS toujours non fonctionnel. Abandon.${RESET}"
-            return 1
-        fi
-    fi
-
-    echo "${GREEN}✅ DNS/réseau opérationnel${RESET}"
-    return 0
-}
-
-# ==========================================================
-# Téléchargement sécurisé avec vérification
-# ==========================================================
-download_zivpn_bin() {
-    local URL="https://github.com/kinf744/Kighmu/releases/download/v1.0.0/udp-zivpn-linux-amd64"
-    local DEST="$ZIVPN_BIN"
-    local MAX_RETRIES=3
-    local ATTEMPT=0
-
-    ensure_dns || return 1
-
-    while (( ATTEMPT < MAX_RETRIES )); do
-        (( ATTEMPT++ ))
-        echo "${CYAN}⬇️  Téléchargement binaire ZIVPN (tentative $ATTEMPT/$MAX_RETRIES)...${RESET}"
-
-        rm -f "$DEST"
-        wget --timeout=30 --tries=2 --show-progress \
-             "$URL" -O "$DEST" 2>&1
-
-        if [[ -s "$DEST" ]]; then
-            chmod +x "$DEST"
-            local SIZE
-            SIZE=$(du -h "$DEST" | cut -f1)
-            echo "${GREEN}✅ Binaire téléchargé avec succès ($SIZE)${RESET}"
-            if file "$DEST" | grep -q "ELF"; then
-                echo "${GREEN}✅ Format binaire valide (ELF)${RESET}"
-                return 0
-            else
-                echo "${RED}❌ Fichier téléchargé invalide (pas un ELF): $(file "$DEST")${RESET}"
-                rm -f "$DEST"
-                return 1
-            fi
-        else
-            echo "${RED}❌ Téléchargement échoué ou fichier vide (tentative $ATTEMPT)${RESET}"
-            rm -f "$DEST"
-            sleep 2
-        fi
-    done
-
-    echo "${RED}❌ Impossible de télécharger le binaire après $MAX_RETRIES tentatives${RESET}"
-    return 1
-}
-
-# ==========================================================
-# RESTAURATION utilisateurs ZIVPN depuis la DB panel (CORRIGÉE)
-# ==========================================================
+# ---------- RESTAURATION utilisateurs ZIVPN depuis la DB panel ----------
 restore_zivpn_from_db() {
-    local ENV_FILE="/opt/kighmu-panel/.env"
-    if [[ ! -f "$ENV_FILE" ]]; then
-        echo "⚠️  Panel .env introuvable (cherché: $ENV_FILE) — restauration DB ignorée."
-        return 0
-    fi
-
-    # ─── LECTURE SÉCURISÉE DU .ENV ───
-    # Nettoyer les guillemets avant de sourcer
-    sed 's/["'"'"']//g' "$ENV_FILE" > /tmp/zivpn_env_clean
-    set -a
-    source /tmp/zivpn_env_clean
-    set +a
-    rm -f /tmp/zivpn_env_clean
-
-    # Valeurs par défaut
-    DB_HOST="${DB_HOST:-127.0.0.1}"
-    DB_PORT="${DB_PORT:-3306}"
-    DB_NAME="${DB_NAME:-kighmu}"
-    DB_USER="${DB_USER:-root}"
-    DB_PASSWORD="${DB_PASSWORD:-}"
-
-    echo "🔍 DB détectée: ${DB_USER}@${DB_HOST}:${DB_PORT}/${DB_NAME}"
-
-    # Vérifier que mysql est disponible
-    if ! command -v mysql &>/dev/null; then
-        echo "⚠️  mysql client introuvable — installation..."
-        apt-get install -y mysql-client 2>/dev/null || {
-            echo "⚠️  Impossible d'installer mysql-client — restauration DB ignorée."
-            return 0
-        }
-    fi
-
-    # ─── FONCTION D'EXÉCUTION SQL SÉCURISÉE ───
-    db_query() {
-        mysql -u"$DB_USER" -p"$DB_PASSWORD" \
-              -h"$DB_HOST" -P"$DB_PORT" \
-              -N -e "$1" "$DB_NAME" 2>/dev/null
-    }
-
-    # ─── DÉTECTION DE LA STRUCTURE ───
-    local TABLE_NAME=""
-    local USERNAME_COL=""
-    local PASSWORD_COL=""
-    local EXPIRES_COL=""
-    local TUNNEL_TYPE_COL=""
-    local IS_ACTIVE_COL=""
-
-    # Essayer de trouver la table qui contient les utilisateurs
-    local TABLES
-    TABLES=$(db_query "SHOW TABLES;")
-    
-    if echo "$TABLES" | grep -q "^clients$"; then
-        TABLE_NAME="clients"
-    elif echo "$TABLES" | grep -q "^users$"; then
-        TABLE_NAME="users"
-    elif echo "$TABLES" | grep -q "^kighmu_users$"; then
-        TABLE_NAME="kighmu_users"
-    elif echo "$TABLES" | grep -q "users"; then
-        TABLE_NAME=$(echo "$TABLES" | grep "users" | head -1)
-    elif echo "$TABLES" | grep -q "client"; then
-        TABLE_NAME=$(echo "$TABLES" | grep "client" | head -1)
-    else
-        echo "⚠️  Aucune table utilisateur trouvée."
-        echo "   Tables disponibles :"
-        echo "$TABLES" | while read -r t; do echo "     - $t"; done
-        return 0
-    fi
-
-    # Détecter les colonnes disponibles
-    local COLUMNS
-    COLUMNS=$(db_query "SHOW COLUMNS FROM \`$TABLE_NAME\`;")
-
-    # Chercher les colonnes par nom possible
-    if echo "$COLUMNS" | grep -qi "^username"; then
-        USERNAME_COL="username"
-    elif echo "$COLUMNS" | grep -qi "^user\b"; then
-        USERNAME_COL="user"
-    elif echo "$COLUMNS" | grep -qi "^login"; then
-        USERNAME_COL="login"
-    elif echo "$COLUMNS" | grep -qi "^name"; then
-        USERNAME_COL="name"
-    fi
-
-    if echo "$COLUMNS" | grep -qi "^password"; then
-        PASSWORD_COL="password"
-    elif echo "$COLUMNS" | grep -qi "^pass\b"; then
-        PASSWORD_COL="pass"
-    elif echo "$COLUMNS" | grep -qi "^pwd"; then
-        PASSWORD_COL="pwd"
-    fi
-
-    if echo "$COLUMNS" | grep -qi "expires_at"; then
-        EXPIRES_COL="expires_at"
-    elif echo "$COLUMNS" | grep -qi "^expire\b"; then
-        EXPIRES_COL="expire"
-    elif echo "$COLUMNS" | grep -qi "valid_until"; then
-        EXPIRES_COL="valid_until"
-    elif echo "$COLUMNS" | grep -qi "expiry"; then
-        EXPIRES_COL="expiry"
-    fi
-
-    if echo "$COLUMNS" | grep -qi "tunnel_type"; then
-        TUNNEL_TYPE_COL="tunnel_type"
-    elif echo "$COLUMNS" | grep -qi "type"; then
-        TUNNEL_TYPE_COL="type"
-    fi
-
-    if echo "$COLUMNS" | grep -qi "is_active"; then
-        IS_ACTIVE_COL="is_active"
-    elif echo "$COLUMNS" | grep -qi "^active\b"; then
-        IS_ACTIVE_COL="active"
-    elif echo "$COLUMNS" | grep -qi "^status"; then
-        IS_ACTIVE_COL="status"
-    fi
-
-    # Vérifier qu'on a le minimum
-    if [[ -z "$USERNAME_COL" || -z "$PASSWORD_COL" || -z "$EXPIRES_COL" ]]; then
-        echo "⚠️  Colonnes requises introuvables dans \`$TABLE_NAME\`"
-        echo "   username: ${USERNAME_COL:-INTROUVABLE}"
-        echo "   password: ${PASSWORD_COL:-INTROUVABLE}"
-        echo "   expires:  ${EXPIRES_COL:-INTROUVABLE}"
-        echo "   Colonnes disponibles:"
-        echo "$COLUMNS" | while read -r c; do echo "     - $c"; done
-        return 0
-    fi
-
-    echo "📋 Table: $TABLE_NAME → $USERNAME_COL | $PASSWORD_COL | $EXPIRES_COL"
-
-    # ─── CONSTRUCTION DE LA REQUÊTE ───
-    local WHERE_CLAUSE="$EXPIRES_COL >= NOW()"
-    
-    if [[ -n "$TUNNEL_TYPE_COL" ]]; then
-        WHERE_CLAUSE="$WHERE_CLAUSE AND $TUNNEL_TYPE_COL='udp-zivpn'"
-    fi
-
-    if [[ -n "$IS_ACTIVE_COL" ]]; then
-        WHERE_CLAUSE="$WHERE_CLAUSE AND $IS_ACTIVE_COL=1"
-    fi
-
-    # ─── COMPTER LES UTILISATEURS ───
-    local COUNT
-    COUNT=$(db_query "SELECT COUNT(*) FROM \`$TABLE_NAME\` WHERE $WHERE_CLAUSE;")
-
-    if [[ -z "$COUNT" || "$COUNT" -eq 0 ]]; then
-        echo "⚠️  Aucun utilisateur udp-zivpn actif trouvé (WHERE: $WHERE_CLAUSE)."
-        return 0
-    fi
-
-    echo "♻️  Restauration de $COUNT utilisateur(s) depuis $TABLE_NAME..."
-
-    # ─── RÉCUPÉRER LES DONNÉES ───
-    local ROWS
-    ROWS=$(db_query "SELECT \`$USERNAME_COL\`, \`$PASSWORD_COL\`, DATE(\`$EXPIRES_COL\`) 
-                     FROM \`$TABLE_NAME\` 
-                     WHERE $WHERE_CLAUSE 
-                     ORDER BY \`$EXPIRES_COL\` ASC;")
-
-    if [[ -z "$ROWS" ]]; then
-        echo "❌ Aucune donnée récupérée malgré COUNT=$COUNT."
-        return 1
-    fi
-
-    # ─── CONSTRUIRE USERS.LIST ───
-    mkdir -p /etc/zivpn
-    local TMP
-    TMP=$(mktemp)
-
-    if [[ -f "$ZIVPN_USER_FILE" && -s "$ZIVPN_USER_FILE" ]]; then
-        cp "$ZIVPN_USER_FILE" "$TMP"
-    fi
-
-    local INJECTED=0
-    while IFS=$'\t' read -r UNAME UPASS UEXP; do
-        [[ -z "$UNAME" || -z "$UPASS" || -z "$UEXP" ]] && continue
-        # Remplacer si déjà présent
-        grep -v "^${UNAME}|" "$TMP" > "${TMP}.clean" 2>/dev/null || true
-        mv "${TMP}.clean" "$TMP"
-        echo "${UNAME}|${UPASS}|${UEXP}" >> "$TMP"
-        (( INJECTED++ ))
-        echo "   ✅ $UNAME → $UEXP"
-    done <<< "$ROWS"
-
-    mv "$TMP" "$ZIVPN_USER_FILE"
-    chmod 600 "$ZIVPN_USER_FILE"
-
-    # Synchroniser config.json
-    update_zivpn_config_passwords
-
-    echo "${GREEN}✅ $INJECTED utilisateur(s) udp-zivpn restauré(s) depuis la DB !${RESET}"
+  local ENV_FILE="/opt/kighmu-panel/.env"
+  if [[ ! -f "$ENV_FILE" ]]; then
+    echo "⚠️  Panel .env introuvable — restauration DB ignorée."
     return 0
+  fi
+
+  # Lire les infos de connexion
+  local DB_HOST DB_USER DB_PASS DB_NAME DB_PORT
+  DB_HOST=$(grep '^DB_HOST='  "$ENV_FILE" | cut -d'=' -f2 | tr -d '"'"'"' ')
+  DB_USER=$(grep '^DB_USER='  "$ENV_FILE" | cut -d'=' -f2 | tr -d '"'"'"' ')
+  DB_PASS=$(grep '^DB_PASSWORD=' "$ENV_FILE" | cut -d'=' -f2 | tr -d '"'"'"' ')
+  DB_NAME=$(grep '^DB_NAME='  "$ENV_FILE" | cut -d'=' -f2 | tr -d '"'"'"' ')
+  DB_PORT=$(grep '^DB_PORT='  "$ENV_FILE" | cut -d'=' -f2 | tr -d '"'"'"' ')
+  DB_HOST=${DB_HOST:-127.0.0.1}
+  DB_PORT=${DB_PORT:-3306}
+
+  # Vérifier que mysql est disponible
+  if ! command -v mysql &>/dev/null; then
+    echo "⚠️  mysql client introuvable — restauration DB ignorée."
+    return 0
+  fi
+
+  # Compter les utilisateurs udp-zivpn valides
+  local COUNT
+  COUNT=$(mysql -u"$DB_USER" -p"$DB_PASS" -h"$DB_HOST" -P"$DB_PORT" \
+    -N -e "SELECT COUNT(*) FROM clients \
+           WHERE tunnel_type='udp-zivpn' \
+           AND expires_at >= NOW() \
+           AND is_active=1;" \
+    "$DB_NAME" 2>/dev/null)
+
+  if [[ -z "$COUNT" || "$COUNT" -eq 0 ]]; then
+    echo "⚠️  Aucun utilisateur udp-zivpn actif trouvé en base de données."
+    return 0
+  fi
+
+  echo "${CYAN}♻️  Restauration de ${COUNT} utilisateur(s) udp-zivpn depuis la DB panel...${RESET}"
+
+  # Récupérer username|password|expires_at depuis la DB
+  local ROWS
+  ROWS=$(mysql -u"$DB_USER" -p"$DB_PASS" -h"$DB_HOST" -P"$DB_PORT" \
+    -N -e "SELECT username, password, DATE(expires_at) FROM clients \
+           WHERE tunnel_type='udp-zivpn' \
+           AND expires_at >= NOW() \
+           AND is_active=1 \
+           ORDER BY expires_at ASC;" \
+    "$DB_NAME" 2>/dev/null)
+
+  if [[ -z "$ROWS" ]]; then
+    echo "❌ Erreur lors de la lecture de la base de données."
+    return 1
+  fi
+
+  # Construire users.list
+  mkdir -p /etc/zivpn
+  local TMP
+  TMP=$(mktemp)
+
+  # Garder les utilisateurs existants non présents dans la DB (éviter doublons)
+  if [[ -f "$ZIVPN_USER_FILE" && -s "$ZIVPN_USER_FILE" ]]; then
+    cp "$ZIVPN_USER_FILE" "$TMP"
+  fi
+
+  local INJECTED=0
+  while IFS=$'\t' read -r UNAME UPASS UEXP; do
+    [[ -z "$UNAME" ]] && continue
+    # Remplacer si déjà présent, sinon ajouter
+    grep -v "^${UNAME}|" "$TMP" > "${TMP}.2" 2>/dev/null || true
+    mv "${TMP}.2" "$TMP"
+    echo "${UNAME}|${UPASS}|${UEXP}" >> "$TMP"
+    (( INJECTED++ ))
+  done <<< "$ROWS"
+
+  mv "$TMP" "$ZIVPN_USER_FILE"
+  chmod 600 "$ZIVPN_USER_FILE"
+
+  # Synchroniser config.json avec les nouveaux passwords
+  update_zivpn_config_passwords
+
+  echo "${GREEN}✅ ${INJECTED} utilisateur(s) udp-zivpn restauré(s) depuis la DB !${RESET}"
 }
 
 # ---------- 1) Installation ----------
@@ -544,9 +343,10 @@ install_zivpn() {
   systemctl stop ufw 2>/dev/null || true
   ufw disable 2>/dev/null || true
   apt purge ufw -y 2>/dev/null || true
-  apt update -y && apt install -y wget curl jq openssl iptables-persistent netfilter-persistent iproute2 mysql-client
+  apt update -y && apt install -y wget curl jq openssl iptables-persistent netfilter-persistent iproute2
 
-  download_zivpn_bin || { echo "${RED}❌ Échec téléchargement binaire — installation annulée${RESET}"; pause; return; }
+  wget -q "https://github.com/kinf744/Kighmu/releases/download/v1.0.0/udp-zivpn-linux-amd64" -O "$ZIVPN_BIN"
+  chmod +x "$ZIVPN_BIN"
 
   mkdir -p /etc/zivpn
   read -rp "Domaine: " DOMAIN; DOMAIN=${DOMAIN:-"zivpn.local"}
@@ -556,7 +356,10 @@ install_zivpn() {
   openssl req -x509 -newkey rsa:2048 -keyout "$KEY" -out "$CERT" -nodes -days 3650 -subj "/CN=$DOMAIN"
   chmod 600 "$KEY"; chmod 644 "$CERT"
 
+  # Config optimisée (fenêtres QUIC larges)
   write_optimized_config
+
+  # Service systemd optimisé (LimitNPROC + LimitMEMLOCK)
   write_optimized_service
 
   systemctl daemon-reload && systemctl enable "$ZIVPN_SERVICE"
@@ -571,6 +374,7 @@ install_zivpn() {
 
   netfilter-persistent save 2>/dev/null || iptables-save > /etc/iptables/rules.v4
 
+  # Optimisations réseau complètes (BBR + buffers 67Mo + FQ qdisc)
   apply_network_optimizations
 
   systemctl start "$ZIVPN_SERVICE" || true
@@ -591,7 +395,7 @@ install_zivpn() {
 
     # ── RESTAURATION depuis la DB panel ──
     echo
-    echo "${CYAN}🔄 Restauration des utilisateurs udp-zivpn depuis le panel...${RESET}"
+    echo "${CYAN}?? Restauration des utilisateurs udp-zivpn depuis le panel...${RESET}"
     restore_zivpn_from_db
 
   else
@@ -708,11 +512,6 @@ fix_zivpn() {
   systemctl reset-failed zivpn.service 2>/dev/null || true
   update-alternatives --set iptables /usr/sbin/iptables-legacy 2>/dev/null || true
 
-  if [[ ! -s "$ZIVPN_BIN" ]] || ! file "$ZIVPN_BIN" 2>/dev/null | grep -q "ELF"; then
-    echo "${YELLOW}⚠️  Binaire ZIVPN absent ou invalide — retéléchargement...${RESET}"
-    download_zivpn_bin || { echo "${RED}❌ Impossible de récupérer le binaire${RESET}"; pause; return; }
-  fi
-
   iptables -C INPUT -p udp --dport 5667 -j ACCEPT 2>/dev/null || \
     iptables -A INPUT -p udp --dport 5667 -j ACCEPT
   iptables -C INPUT -p udp --dport 6000:19999 -j ACCEPT 2>/dev/null || \
@@ -722,7 +521,10 @@ fix_zivpn() {
 
   netfilter-persistent save 2>/dev/null || true
 
+  # Réappliquer les optimisations réseau
   apply_network_optimizations
+
+  # Réécrire le service avec les limites correctes
   write_optimized_service
   systemctl daemon-reload
 
@@ -738,7 +540,7 @@ fix_zivpn() {
   pause
 }
 
-# ---------- 5) Appliquer optimisations seules ----------
+# ---------- 5) Appliquer optimisations seules (NOUVEAU) ----------
 optimize_only() {
   print_title
   echo "[5] APPLIQUER OPTIMISATIONS VITESSE"
@@ -749,7 +551,9 @@ optimize_only() {
 
   apply_network_optimizations
 
+  # Mettre à jour la config JSON si elle existe
   if [[ -f "$ZIVPN_CONFIG" ]]; then
+    # Vérifier si les champs QUIC sont déjà présents
     if ! jq -e '.recv_window_conn' "$ZIVPN_CONFIG" >/dev/null 2>&1; then
       echo "${CYAN}⚙️  Mise à jour config.json (fenêtres QUIC)...${RESET}"
       local TMP
@@ -772,6 +576,7 @@ optimize_only() {
     fi
   fi
 
+  # Mettre à jour le service si LimitNPROC manque
   if [[ -f "/etc/systemd/system/$ZIVPN_SERVICE" ]]; then
     if ! grep -q "LimitNPROC" "/etc/systemd/system/$ZIVPN_SERVICE"; then
       echo "${CYAN}⚙️  Mise à jour service systemd (LimitNPROC/MEMLOCK)...${RESET}"
