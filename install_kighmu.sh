@@ -60,6 +60,9 @@ ensure_dns() {
     echo "✅ DNS/réseau opérationnel"
 }
 
+# AJOUTER CETTE LIGNE :
+ensure_dns    # <--- ICI, appelez la fonction
+
 echo "Vérification et installation de curl si nécessaire..."
 
 install_package_if_missing() {
