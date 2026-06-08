@@ -348,14 +348,11 @@ echo "Fichier ~/.kighmu_info créé avec succès et permissions sécurisées."
 run_script() {
   local script_path=$1
   echo "🚀 Lancement du script : $script_path"
-  set +e
-  bash "$script_path"
-  if [[ $? -ne 0 ]]; then
-    echo "⚠️ Attention : $script_path a rencontré une erreur, mais l'installation continue..."
+  if bash "$script_path" 2>/dev/null; then
+    echo "✅ $script_path exécuté avec succès"
   else
-    echo "✅ $script_path exécuté avec succès."
+    echo "⚠️ $script_path a rencontré une erreur, on continue..."
   fi
-  set -e
 }
 
 echo "🚀 Application de la configuration SSH personnalisée..."
