@@ -8,6 +8,11 @@
 set -o nounset
 set -o pipefail
 
+# Fonctions de logging (AJOUT OBLIGATOIRE)
+log_info()  { echo -e "[INFO] $*"; }
+log_warn()  { echo -e "[WARN] $*"; }
+log_error() { echo -e "[ERROR] $*"; }
+
 # ==========================================================
 # CORRECTIF: Assurer DNS/réseau fonctionnel dès le départ
 # ==========================================================
@@ -75,22 +80,36 @@ ensure_dns    # <--- ICI, appelez la fonction
 echo "Vérification et installation de curl si nécessaire..."
 
 install_package_if_missing() {
-  local pkg=$1
-  echo "Installation de $pkg..."
-  set +e
-  apt-get install -y "$pkg"
-  if [[ $? -ne 0 ]]; then
-    echo "⚠️ Attention : échec de l'installation du paquet $pkg, le script continue..."
-  else
-    echo "Le paquet $pkg a été installé avec succès."
-  fi
-  set -e
+    local pkg=$1
+    
+    # Vérifier si déjà installé
+    if dpkg -l 2>/dev/null | grep -q "^ii.*$pkg "; then
+        log_info "✅ $pkg déjà installé"
+        return 0
+    fi
+    
+    log_info "Installation de $pkg..."
+    if apt-get install -y "$pkg" >/dev/null 2>&1; then
+        log_info "✅ $pkg installé avec succès"
+        return 0
+    else
+        log_warn "⚠️ Échec de l'installation de $pkg, le script continue..."
+        return 1
+    fi
 }
 
-apt-get update -y
-apt-get install dnsutils -y
+# Installation initiale
+log_info "Mise à jour des paquets..."
+apt-get update -y 2>/dev/null || log_warn "⚠️ apt-get update a échoué, on continue..."
 
-install_package_if_missing "curl"
+# Installer curl (essentiel pour la suite)
+if ! command -v curl &>/dev/null; then
+    log_info "Installation de curl..."
+    apt-get install -y curl 2>/dev/null || {
+        log_error "❌ Impossible d'installer curl"
+        exit 1
+    }
+fi
 
 echo "+--------------------------------------------+"
 echo "|             INSTALLATION VPS               |"
