@@ -170,7 +170,7 @@ if [[ "$MISMATCH" == true ]]; then
   echo "Attention : le domaine $DOMAIN ne pointe pas vers l'IP de ce serveur."
   echo "Vérifiez les enregistrements A (IPv4) et/ou AAAA (IPv6) selon votre configuration."
   read -r -p "Voulez-vous continuer quand même ? [oui/non] : " choix
-  if [[ ! "$choix" =~ ^(o|oui)$ ]]; then
+  if [[ "$choix" != "o" && "$choix" != "oui" ]]; then
     echo "Installation arrêtée."
     exit 1
   fi
@@ -295,7 +295,17 @@ BASE_URL="https://raw.githubusercontent.com/kinf744/Kighmu/main"
 
 for file in "${FILES[@]}"; do
   echo "Téléchargement de $file ..."
-  wget -q --show-progress -O "$INSTALL_DIR/$file" "$BASE_URL/$file"
+  if wget -q --show-progress -O "$INSTALL_DIR/$file" "$BASE_URL/$file" 2>/dev/null; then
+    if [[ -s "$INSTALL_DIR/$file" ]]; then
+      chmod +x "$INSTALL_DIR/$file"
+      echo "✅ $file OK"
+    else
+      echo "⚠️ $file est vide"
+    fi
+  else
+    echo "⚠️ Échec du téléchargement de $file"
+  fi
+done
   if [[ ! -s "$INSTALL_DIR/$file" ]]; then
     echo "⚠️ Erreur : le fichier $file n'a pas été téléchargé correctement ou est vide, mais le script continue..."
   else
