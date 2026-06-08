@@ -306,12 +306,7 @@ for file in "${FILES[@]}"; do
     echo "⚠️ Échec du téléchargement de $file"
   fi
 done
-  if [[ ! -s "$INSTALL_DIR/$file" ]]; then
-    echo "⚠️ Erreur : le fichier $file n'a pas été téléchargé correctement ou est vide, mais le script continue..."
-  else
-    chmod +x "$INSTALL_DIR/$file"
-  fi
-done
+# FIN - ne rien mettre après ce "done"
 
 # ==========================================
 # Configuration du nettoyage automatique
