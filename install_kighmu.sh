@@ -5,6 +5,8 @@
 # Licence MIT (version française)
 # ==============================================
 
+set -o errexit
+set -o nounset
 set -o pipefail
 
 # ==========================================================
@@ -58,35 +60,6 @@ ensure_dns() {
     echo "✅ DNS/réseau opérationnel"
 }
 
-# ==========================================================
-# Téléchargement sécurisé avec vérification
-# ==========================================================
-BASE_URL="https://raw.githubusercontent.com/kinf744/Kighmu/main"
-
-safe_wget() {
-    local url="$1"
-    local dest="$2"
-    local label="${3:-$(basename "$dest")}"
-    local MAX_RETRIES=3
-    local attempt=0
-
-    while (( attempt < MAX_RETRIES )); do
-        (( attempt++ ))
-        wget --timeout=30 --tries=1 -q "$url" -O "$dest" 2>/dev/null || true
-        if [[ -s "$dest" ]]; then
-            return 0
-        fi
-        echo "⚠️  $label vide (tentative $attempt/$MAX_RETRIES) — nouvel essai..."
-        rm -f "$dest"
-        sleep 2
-    done
-
-    echo "⚠️ Erreur : $label n'a pas pu être téléchargé après $MAX_RETRIES tentatives, mais le script continue..."
-    return 0
-}
-
-# ==========================================================
-
 echo "Vérification et installation de curl si nécessaire..."
 
 install_package_if_missing() {
@@ -101,9 +74,6 @@ install_package_if_missing() {
   fi
   set -e
 }
-
-# S'assurer que DNS est fonctionnel AVANT tout apt/wget
-ensure_dns
 
 apt-get update -y
 apt-get install dnsutils -y
@@ -151,12 +121,14 @@ echo "Enregistrement AAAA (IPv6)  du domaine : ${DOMAIN_AAAA:-aucun}"
 
 MISMATCH=true
 
+# Cas IPv4 : si le serveur a une IPv4 publique, on vérifie le A
 if [[ -n "$IPV4_PUBLIC" ]]; then
   if [[ "$DOMAIN_A" == "$IPV4_PUBLIC" ]]; then
     MISMATCH=false
   fi
 fi
 
+# Cas IPv6 : si le serveur a une IPv6 publique, on vérifie le AAAA
 if [[ -n "$IPV6_PUBLIC" ]]; then
   if [[ "$DOMAIN_AAAA" == "$IPV6_PUBLIC" ]]; then
     MISMATCH=false
@@ -289,10 +261,14 @@ FILES=(
   "vless_bot.py"
 )
 
+BASE_URL="https://raw.githubusercontent.com/kinf744/Kighmu/main"
+
 for file in "${FILES[@]}"; do
   echo "Téléchargement de $file ..."
-  safe_wget "$BASE_URL/$file" "$INSTALL_DIR/$file" "$file"
-  if [[ -s "$INSTALL_DIR/$file" ]]; then
+  wget -q --show-progress -O "$INSTALL_DIR/$file" "$BASE_URL/$file"
+  if [[ ! -s "$INSTALL_DIR/$file" ]]; then
+    echo "⚠️ Erreur : le fichier $file n'a pas été téléchargé correctement ou est vide, mais le script continue..."
+  else
     chmod +x "$INSTALL_DIR/$file"
   fi
 done
@@ -310,20 +286,23 @@ if [[ -f "$CLEAN_SCRIPT" ]]; then
 
   CRON_JOB="*/10 * * * * $CLEAN_SCRIPT >> /var/log/auto-clean.log 2>&1"
 
+  # Vérifie si le cron existe déjà
   if crontab -l 2>/dev/null | grep -Fq "$CLEAN_SCRIPT"; then
       echo "Cron déjà configuré pour le nettoyage automatique."
   else
+      # Ajoute le cron même si crontab est vide
       ( crontab -l 2>/dev/null; echo "$CRON_JOB" ) | crontab -
       echo "Cron ajouté pour le nettoyage automatique (exécution quotidienne à minuit)."
   fi
 
+  # Active et redémarre le service cron
   systemctl enable cron >/dev/null 2>&1
   systemctl restart cron >/dev/null 2>&1
 else
   echo "⚠️ Auto-clean.sh introuvable, cron non configuré."
 fi
 
-# Création du fichier ~/.kighmu_info
+# Création du fichier ~/.kighmu_info avec les infos globales nécessaires
 : "${NS:=}"
 : "${PUBLIC_KEY:=}"
 
@@ -398,8 +377,14 @@ EOF
 
 chmod +x /usr/local/bin/kighmu-panel.sh
 
+# Ajout automatique au démarrage du shell du panneau avec nettoyage écran
 if ! grep -q "kighmu-panel.sh" ~/.bashrc; then
-  echo -e "\n# Affichage automatique du panneau KIGHMU au démarrage\nclear\n/usr/local/bin/kighmu-panel.sh" >> ~/.bashrc
+  echo -e "
+# Affichage automatique du panneau KIGHMU au démarrage
+clear
+/usr/local/bin/kighmu-panel.sh
+" >> ~/.bashrc
 fi
 
+# Lancement immédiat une fois après installation
 /usr/local/bin/kighmu-panel.sh
