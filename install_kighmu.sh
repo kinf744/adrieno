@@ -22,7 +22,17 @@ ensure_dns() {
     fi
     echo "✅ Connectivité réseau OK"
 
-    # 2. Démarrer systemd-resolved si nécessaire
+    # 2. Installer dnsutils d'abord
+    if ! command -v dig &>/dev/null; then
+        log_warn "Installation de dnsutils..."
+        apt-get update -y || true
+        apt-get install -y dnsutils || {
+            log_error "❌ Impossible d'installer dnsutils"
+            exit 1
+        }
+    fi
+
+    # 3. Démarrer systemd-resolved si nécessaire
     if systemctl list-unit-files systemd-resolved.service &>/dev/null; then
         if ! systemctl is-active --quiet systemd-resolved 2>/dev/null; then
             echo "⚠️  systemd-resolved inactif — démarrage..."
@@ -32,7 +42,7 @@ ensure_dns() {
         fi
     fi
 
-    # 3. Vérifier/réparer le lien symbolique resolv.conf
+    # 4. Vérifier/réparer le lien symbolique resolv.conf
     if [[ ! -e /etc/resolv.conf ]]; then
         echo "⚠️  /etc/resolv.conf absent — création..."
         if [[ -f /run/systemd/resolve/stub-resolv.conf ]]; then
@@ -43,7 +53,7 @@ ensure_dns() {
         sleep 1
     fi
 
-    # 4. Tester la résolution DNS
+    # 5. Tester la résolution DNS
     if ! getent hosts github.com &>/dev/null; then
         echo "⚠️  Résolution DNS échoue — basculement sur DNS statique..."
         rm -f /etc/resolv.conf
