@@ -85,10 +85,12 @@ install_slowdns() {
     rm -f /etc/systemd/system/slowdns.service
     systemctl daemon-reload
 
-    # Suppression éventuelle des règles iptables existantes
+    # Suppression règles iptables port 5300
     iptables -D INPUT -p udp --dport 5300 -j ACCEPT 2>/dev/null || true
-    iptables-save > /etc/iptables/rules.v4
-    systemctl restart netfilter-persistent
+    iptables -D INPUT -p tcp --dport 5300 -j ACCEPT 2>/dev/null || true
+    # Suppression table nftables slowdns si elle existe
+    nft delete table ip slowdns 2>/dev/null || true
+    netfilter-persistent save 2>/dev/null || true
 
     echo ">>> Installation/configuration SlowDNS..."
     bash "$HOME/Kighmu/slowdns.sh" || echo "SlowDNS : script introuvable."
@@ -117,15 +119,15 @@ uninstall_slowdns() {
   rm -rf /etc/slowdns
   rm -f /var/log/slowdns.log
 
-  # 3) IPTABLES SLOWDNS UNIQUEMENT (règles spécifiques)
+  # 3) Nettoyage firewall SlowDNS
   iptables -D INPUT -p udp --dport 5300 -j ACCEPT 2>/dev/null || true
-  iptables -t nat -D PREROUTING -i eth0 -p udp --dport 53 -j REDIRECT --to-ports 5300 2>/dev/null || true
-
-  # ✅ SAUVEGARDE iptables (ZIVPN/Hysteria préservés)
-  netfilter-persistent save 2>/dev/null || iptables-save > /etc/iptables/rules.v4
+  iptables -D INPUT -p tcp --dport 5300 -j ACCEPT 2>/dev/null || true
+  # Supprimer table nftables isolée — sans toucher ZIVPN/Hysteria
+  nft delete table ip slowdns 2>/dev/null || true
+  netfilter-persistent save 2>/dev/null || true
 
   echo "✅ SlowDNS supprimé SANS toucher ZIVPN/Hysteria"
-  echo "   Vérifiez: iptables -t nat -L PREROUTING -n"
+  echo "   Vérifiez: nft list tables"
 }
 
 install_openssh() {
