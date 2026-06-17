@@ -239,27 +239,39 @@ StandardError=append:/var/log/slowdns.log
 WantedBy=multi-user.target
 EOF
 
-# ===================== IPTABLES SLOWDNS (PROPRE) =====================
+# ===================== NFTABLES SLOWDNS (IDEMPOTENT) =====================
 
-# Autoriser SlowDNS local
+# Installer nftables si absent
+apt install -y nftables >/dev/null 2>&1
+systemctl enable nftables >/dev/null 2>&1
+
+# Supprimer la table slowdns si elle existe déjà (nettoyage propre)
+nft delete table ip slowdns 2>/dev/null || true
+
+# Recréer la table proprement — impossible d'avoir des doublons
+nft add table ip slowdns
+nft add chain ip slowdns prerouting \
+    '{ type nat hook prerouting priority -100; policy accept; }'
+nft add rule ip slowdns prerouting udp dport 53 redirect to :5300
+nft add rule ip slowdns prerouting tcp dport 53 redirect to :5300
+
+# Autoriser port 5300 en INPUT via iptables (comme avant)
 iptables -C INPUT -p udp --dport 5300 -j ACCEPT 2>/dev/null || \
 iptables -A INPUT -p udp --dport 5300 -j ACCEPT
-
 iptables -C INPUT -p tcp --dport 5300 -j ACCEPT 2>/dev/null || \
 iptables -A INPUT -p tcp --dport 5300 -j ACCEPT
 
+# Supprimer les anciennes règles iptables port 53 si elles existent encore
+while iptables -t nat -D PREROUTING -p udp --dport 53 \
+    -j REDIRECT --to-ports 5300 2>/dev/null; do :; done
+while iptables -t nat -D PREROUTING -p tcp --dport 53 \
+    -j REDIRECT --to-ports 5300 2>/dev/null; do :; done
 
-# Nettoyage ciblé
-iptables -t nat -D PREROUTING -p udp --dport 53 -j REDIRECT --to-ports 5300 2>/dev/null || true
-iptables -t nat -D PREROUTING -p tcp --dport 53 -j REDIRECT --to-ports 5300 2>/dev/null || true
+# Sauvegarder nftables et iptables
+nft list ruleset > /etc/nftables.conf
+netfilter-persistent save 2>/dev/null || true
 
-
-# 🔥 Redirection UNIQUEMENT trafic entrant client
-iptables -t nat -I PREROUTING 1 -p udp --dport 53 -j REDIRECT --to-ports 5300
-iptables -t nat -I PREROUTING 1 -p tcp --dport 53 -j REDIRECT --to-ports 5300
-
-
-netfilter-persistent save
+log "✅ SlowDNS — nftables configuré (table isolée, zéro doublon possible)"
 systemctl enable slowdns
 systemctl restart slowdns
 
