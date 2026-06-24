@@ -40,7 +40,7 @@ afficher_modes_ports() {
         echo -e "  - Dropbear: ${GREEN}port $DROPBEAR_PORT${RESET}"
     fi
     if systemctl is-active --quiet slowdns-ns4.service || pgrep -f "sldns-server" >/dev/null 2>&1 || screen -list | grep -q slowdns_session; then
-        echo -e "  - SlowDNS: ${GREEN}ports UDP 5334${RESET}"
+        echo -e "  - SlowDNS: ${GREEN}ports UDP 5353${RESET}"
     fi
     if systemctl is-active --quiet udp-custom.service || pgrep -f ud-custom-linux-amd64 >/dev/null 2>&1 || screen -list | grep -q udp-custom; then
         echo -e "  - UDP Custom: ${GREEN}port UDP 1-65535${RESET}"
