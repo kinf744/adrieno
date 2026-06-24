@@ -1,278 +1,419 @@
 #!/bin/bash
-# set -euo pipefail supprimé — évite arrêt sur erreurs non critiques
-set -uo pipefail
+set -euo pipefail
 
-# ==========================================================
-# SlowDNS DNSTT Server - Version finale consolidée
-# Compatible Debian 11/12 & Ubuntu 20.04+
-# Backend : SSH / V2Ray / MIX
-# Sécurisé via nftables (sans casser UDP Request)
-# ==========================================================
+# ================================================================
+# SlowDNS v2 — Installation Dual-Instance avec dnsdist
+# Architecture :
+#   Port 53 → dnsdist
+#     ├── Instance #1 (port 5353) → SSH:22
+#     └── Instance #2 (port 5354) → V2Ray:5401
+# ================================================================
+
+R='\033[0;31m'; G='\033[0;32m'; Y='\033[1;33m'; C='\033[0;36m'; B='\033[1m'; NC='\033[0m'
+info() { echo -e "  ${C}[•]${NC} $1"; }
+ok()   { echo -e "  ${G}[✓]${NC} $1"; }
+warn() { echo -e "  ${Y}[!]${NC} $1"; }
+err()  { echo -e "  ${R}[✗]${NC} $1"; }
+sep()  { echo -e "  ${B}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"; }
 
 SLOWDNS_DIR="/etc/slowdns"
 SLOWDNS_BIN="/usr/local/bin/dnstt-server"
-PORT=5300
-CONFIG_FILE="$SLOWDNS_DIR/ns.conf"
+BACKUP_DIR="/root/backup-slowdns-$(date +%Y%m%d-%H%M%S)"
 SERVER_KEY="$SLOWDNS_DIR/server.key"
 SERVER_PUB="$SLOWDNS_DIR/server.pub"
-ENV_FILE="$SLOWDNS_DIR/slowdns.env"
-BACKEND_CONF="$SLOWDNS_DIR/backend.conf"
+CONFIG_FILE="$SLOWDNS_DIR/ns.conf"
+
+DOMAIN="${DOMAIN:-kingom.ggff.net}"
+IP_PUBLIC="${IP_PUBLIC:-$(curl -s ipv4.icanhazip.com || echo "127.0.0.1")}"
+BACKEND1_TARGET="${BACKEND1_TARGET:-127.0.0.1:22}"
+BACKEND2_TARGET="${BACKEND2_TARGET:-127.0.0.1:5401}"
+PORT1="${PORT1:-5353}"
+PORT2="${PORT2:-5354}"
+DNSDIST_PORT="${DNSDIST_PORT:-53}"
+
+DNSTT_PRIV_KEY="4ab3af05fc004cb69d50c89de2cd5d138be1c397a55788b8867088e801f7fcaa"
+DNSTT_PUB_KEY="2cb39d63928451bd67f5954ffa5ac16c8d903562a10c4b21756de4f1a82d581c"
 
 CF_API_TOKEN="7mn4LKcZARvdbLlCVFTtaX7LGM2xsnyjHkiTAt37"
 CF_ZONE_ID="7debbb8ea4946898a889c4b5745ab7eb"
 
-PUB_IFACE="eth0"   # ⚠️ interface publique VPS
+[[ "$EUID" -ne 0 ]] && { err "Exécutez en root"; exit 1; }
 
-log() {
-  echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"
-}
-
-# ===================== CHECK ROOT =====================
-if [[ "$EUID" -ne 0 ]]; then
-  echo "Ce script doit être exécuté en root" >&2
-  exit 1
-fi
-
-mkdir -p "$SLOWDNS_DIR"
-
-# ===================== DNS LOCAL =====================
-log "Configuration DNS système..."
-systemctl disable --now systemd-resolved.service >/dev/null 2>&1 || true
-chattr -i /etc/resolv.conf 2>/dev/null || true
-
-cat > /etc/resolv.conf <<EOF
-nameserver 1.1.1.1
-nameserver 8.8.8.8
-options timeout:1
-options attempts:1
+clear
+echo -e "${C}${B}"
+cat << 'EOF'
+  ╔══════════════════════════════════════════════════╗
+  ║         SlowDNS v3 — Dual-Instance Setup         ║
+  ╚══════════════════════════════════════════════════╝
 EOF
+echo -e "${NC}"
+sep
 
-chmod 644 /etc/resolv.conf
+mkdir -p "$SLOWDNS_DIR/ns4" "$SLOWDNS_DIR/nv4" /var/log/slowdns
 
-# ===================== DEPENDANCES =====================
-log "Installation des dépendances..."
-export DEBIAN_FRONTEND=noninteractive
-apt update -y
-apt install -y iptables curl tcpdump jq python3 python3-venv python3-pip iproute2
+echo ""
+echo -e "  ${B}Mode de configuration des NS :${NC}"
+echo -e "  ${G}[1]${NC}  Auto — Cloudflare API"
+echo -e "  ${C}[2]${NC}  Manuel — NS déjà créés"
+echo ""
+read -rp "  Mode [1/2] : " MODE
+echo ""
 
-# ===================== PYTHON VENV =====================
-if [[ ! -d "$SLOWDNS_DIR/venv" ]]; then
-  python3 -m venv "$SLOWDNS_DIR/venv"
-fi
+if [[ "$MODE" == "1" ]]; then
+  MODE="auto"
+  read -rp "  Domaine principal (Entrée = $DOMAIN) : " input_domain
+  DOMAIN="${input_domain:-$DOMAIN}"
 
-source "$SLOWDNS_DIR/venv/bin/activate"
-pip install --upgrade pip >/dev/null
-pip install cloudflare >/dev/null || log "cloudflare lib non critique"
+  HASH1=$(printf '%s%s' "$RANDOM" "$RANDOM" | sha256sum | cut -c1-6)
+  HASH2=$(printf '%s%s%s' "$RANDOM" "$RANDOM" "$RANDOM" | sha256sum | cut -c1-6)
+  while [[ "$HASH1" == "$HASH2" ]]; do
+    HASH2=$(printf '%s%s%s' "$RANDOM" "$RANDOM" "$RANDOM" | sha256sum | cut -c1-6)
+  done
 
-# ===================== DNSTT =====================
-if [[ ! -x "$SLOWDNS_BIN" ]]; then
-  log "Téléchargement DNSTT server..."
-  curl -fsSL https://dnstt-server-client.s3.amazonaws.com/dnstt-server-linux-amd64 -o "$SLOWDNS_BIN"
-  chmod +x "$SLOWDNS_BIN"
-fi
+  FQDN_A1="vps-ns4-$HASH1.$DOMAIN"
+  FQDN_A2="vps-nv4-$HASH2.$DOMAIN"
+  NS4="ns4.$DOMAIN"
+  NV4="nv4.$DOMAIN"
 
-# ===================== BACKEND =====================
-choose_backend() {
-  echo
-  echo "Choix du backend SlowDNS"
-  echo "1) SSH"
-  echo "2) V2Ray"
-  echo "3) WS"
-  read -rp "Sélection [1-3] : " c
+  info "Création des enregistrements Cloudflare..."
 
-  case "$c" in
-    1) BACKEND_MODE="ssh" ;;
-    2) BACKEND_MODE="v2ray" ;;
-    3) BACKEND_MODE="WS" ;;
-    *) echo "Choix invalide"; exit 1 ;;
-  esac
+  cf_post() {
+    curl -s -X POST "https://api.cloudflare.com/client/v4/zones/$CF_ZONE_ID/dns_records" \
+      -H "Authorization: Bearer $CF_API_TOKEN" \
+      -H "Content-Type: application/json" \
+      --data "$1" > /dev/null
+  }
 
-  echo "BACKEND_MODE=$BACKEND_MODE" > "$BACKEND_CONF"
-  log "Backend sélectionné : $BACKEND_MODE"
-}
+  cf_post "{\"type\":\"A\",\"name\":\"$FQDN_A1\",\"content\":\"$IP_PUBLIC\",\"ttl\":120,\"proxied\":false}"
+  ok "A $FQDN_A1 → $IP_PUBLIC"
+  cf_post "{\"type\":\"A\",\"name\":\"$FQDN_A2\",\"content\":\"$IP_PUBLIC\",\"ttl\":120,\"proxied\":false}"
+  ok "A $FQDN_A2 → $IP_PUBLIC"
+  cf_post "{\"type\":\"NS\",\"name\":\"$NS4\",\"content\":\"$FQDN_A1\",\"ttl\":120}"
+  ok "NS $NS4 → $FQDN_A1"
+  cf_post "{\"type\":\"NS\",\"name\":\"$NV4\",\"content\":\"$FQDN_A2\",\"ttl\":120}"
+  ok "NS $NV4 → $FQDN_A2"
 
-# ===================== NS =====================
-read -rp "Mode NS [auto/man] : " MODE
-MODE=${MODE,,}
+  warn "Propagation DNS : quelques minutes."
 
-generate_ns_auto() {
-  DOMAIN="kingom.ggff.net"
-  VPS_IP=$(curl -s ipv4.icanhazip.com || echo "127.0.0.1")
-
-  SUB="$(date +%s | sha256sum | cut -c1-6)"
-  FQDN_A="vpn-$SUB.$DOMAIN"
-  NS="ns-$SUB.$DOMAIN"
-
-  curl -s -X POST "https://api.cloudflare.com/client/v4/zones/$CF_ZONE_ID/dns_records" \
-    -H "Authorization: Bearer $CF_API_TOKEN" \
-    -H "Content-Type: application/json" \
-    --data "{\"type\":\"A\",\"name\":\"$FQDN_A\",\"content\":\"$VPS_IP\",\"ttl\":120,\"proxied\":false}" >/dev/null
-
-  curl -s -X POST "https://api.cloudflare.com/client/v4/zones/$CF_ZONE_ID/dns_records" \
-    -H "Authorization: Bearer $CF_API_TOKEN" \
-    -H "Content-Type: application/json" \
-    --data "{\"type\":\"NS\",\"name\":\"$NS\",\"content\":\"$FQDN_A\",\"ttl\":120}" >/dev/null
-
-  echo -e "NS=$NS\nENV_MODE=auto" > "$ENV_FILE"
-  chmod 600 "$ENV_FILE"
-  echo "$NS"
-}
-
-if [[ "$MODE" == "auto" ]]; then
-  [[ -f "$ENV_FILE" ]] && source "$ENV_FILE"
-  [[ "${ENV_MODE:-}" == "auto" && -n "${NS:-}" ]] || NS=$(generate_ns_auto)
-elif [[ "$MODE" == "man" ]]; then
-  read -rp "Entrez NS : " NS
-  echo -e "NS=$NS\nENV_MODE=man" > "$ENV_FILE"
+elif [[ "$MODE" == "2" ]]; then
+  MODE="man"
+  read -rp "  NS instance #1 (ex: ns4.kingom.ggff.net) : " NS4
+  read -rp "  NS instance #2 (ex: nv4.kingom.ggff.net) : " NV4
+  ok "NS #1 : $NS4"
+  ok "NS #2 : $NV4"
 else
-  echo "Mode invalide"; exit 1
+  err "Mode invalide."; exit 1
 fi
 
-choose_backend
+printf 'MODE=%s\nNS4=%s\nNV4=%s\nDOMAIN=%s\n' "$MODE" "$NS4" "$NV4" "$DOMAIN" > "$SLOWDNS_DIR/install.env"
 
-echo "$NS" > "$CONFIG_FILE"
-chmod 644 "$CONFIG_FILE"
+sep
+echo -e "  ${C}Port $DNSDIST_PORT${NC} → dnsdist"
+echo -e "      ├── ${Y}$NS4${NC} → SlowDNS #1 (port $PORT1) → ${G}$BACKEND1_TARGET${NC}"
+echo -e "      └── ${Y}$NV4${NC} → SlowDNS #2 (port $PORT2) → ${G}$BACKEND2_TARGET${NC}"
+sep
 
-# ===================== KEYS =====================
-cat > "$SERVER_KEY" <<'EOF'
-4ab3af05fc004cb69d50c89de2cd5d138be1c397a55788b8867088e801f7fcaa
-EOF
+info "Sauvegarde..."
+mkdir -p "$BACKUP_DIR"
+for f in /etc/nftables.conf /etc/iptables/rules.v4 /etc/sysctl.d/99-slowdns.conf /etc/dnsdist/dnsdist.conf; do
+  [[ -f "$f" ]] && cp -a "$f" "$BACKUP_DIR/" 2>/dev/null
+done
+[[ -d "$SLOWDNS_DIR" ]] && cp -a "$SLOWDNS_DIR" "$BACKUP_DIR/slowdns/" 2>/dev/null
+nft list ruleset > "$BACKUP_DIR/nftables-ruleset.txt" 2>/dev/null || true
+iptables-save > "$BACKUP_DIR/iptables-save.txt" 2>/dev/null || true
+ok "Sauvegarde → $BACKUP_DIR"
 
-cat > "$SERVER_PUB" <<'EOF'
-2cb39d63928451bd67f5954ffa5ac16c8d903562a10c4b21756de4f1a82d581c
-EOF
+info "Installation des dépendances..."
+export DEBIAN_FRONTEND=noninteractive
+apt update -qq 2>/dev/null
+apt install -y -qq curl jq dnsdist nftables iptables netfilter-persistent 2>/dev/null
+ok "Dépendances OK"
 
-chmod 600 "$SERVER_KEY"
-chmod 644 "$SERVER_PUB"
+if [[ ! -x "$SLOWDNS_BIN" ]]; then
+  info "Téléchargement dnstt-server..."
+  DNSTT_TMP=$(mktemp)
+  curl -fsSL "https://dnstt-server-client.s3.amazonaws.com/dnstt-server-linux-amd64" -o "$DNSTT_TMP"
+  FILESIZE=$(stat -c%s "$DNSTT_TMP")
+  if [[ "$FILESIZE" -lt 1048576 ]]; then
+    err "Binaire corrompu ($FILESIZE octets)"; rm -f "$DNSTT_TMP"; exit 1
+  fi
+  mv "$DNSTT_TMP" "$SLOWDNS_BIN"
+  chmod +x "$SLOWDNS_BIN"
+  ok "dnstt-server OK ($FILESIZE octets)"
+else
+  ok "dnstt-server déjà présent"
+fi
 
-# ===================== SYSCTL =====================
-log "Optimisation réseau kernel..."
-cat > /etc/sysctl.d/99-slowdns.conf <<EOF
-net.ipv4.ip_forward=1
-net.core.rmem_max=67108864
-net.core.wmem_max=67108864
-net.core.netdev_max_backlog=60000
-net.core.somaxconn=4096
-EOF
+info "Déploiement des clés..."
+printf '%s\n' "$DNSTT_PRIV_KEY" > "$SERVER_KEY"
+printf '%s\n' "$DNSTT_PUB_KEY"  > "$SERVER_PUB"
+chmod 600 "$SERVER_KEY"; chmod 644 "$SERVER_PUB"
+ok "Clés OK"
 
-sysctl --system >/dev/null
+echo "$NS4" > "$CONFIG_FILE"
+echo "$NV4" > "$SLOWDNS_DIR/nv4/ns.conf"
 
-# ===================== START SCRIPT =====================
-cat > /usr/local/bin/slowdns-start.sh <<'STARTEOF'
+info "Création des scripts de démarrage..."
+
+cat > /usr/local/bin/slowdns-ns4-start.sh << 'STARTEOF'
 #!/bin/bash
-# Pas de set -e : on gère les erreurs manuellement pour éviter les arrêts inattendus
-
-DIR="/etc/slowdns"
-BIN="/usr/local/bin/dnstt-server"
-LOG="/var/log/slowdns.log"
-
-echo "[$(date '+%Y-%m-%d %H:%M:%S')] slowdns-start.sh démarré" >> "$LOG"
-
-# Vérifier les fichiers essentiels
-if [[ ! -x "$BIN" ]]; then
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] ERREUR : $BIN introuvable ou non exécutable" >> "$LOG"
-    exit 1
-fi
-
-if [[ ! -f "$DIR/server.key" ]]; then
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] ERREUR : $DIR/server.key introuvable" >> "$LOG"
-    exit 1
-fi
-
-if [[ ! -f "$DIR/ns.conf" ]]; then
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] ERREUR : $DIR/ns.conf introuvable" >> "$LOG"
-    exit 1
-fi
-
-NS=$(cat "$DIR/ns.conf" | tr -d '\n\r ')
-if [[ -z "$NS" ]]; then
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] ERREUR : ns.conf est vide" >> "$LOG"
-    exit 1
-fi
-
-# Lire le backend
-BACKEND_MODE="ssh"
-[[ -f "$DIR/backend.conf" ]] && source "$DIR/backend.conf" 2>/dev/null || true
-
-case "$BACKEND_MODE" in
-  ssh)   TARGET="127.0.0.1:22" ;;
-  v2ray) TARGET="127.0.0.1:5401" ;;
-  WS)    TARGET="127.0.0.1:80" ;;
-  *)     TARGET="127.0.0.1:22" ;;
-esac
-
-echo "[$(date '+%Y-%m-%d %H:%M:%S')] Démarrage dnstt-server → NS=$NS TARGET=$TARGET" >> "$LOG"
-
-# Lancer dnstt-server — exec remplace ce process (systemd gère le restart)
-exec "$BIN" -udp :5300 \
-  -privkey-file "$DIR/server.key" \
-  "$NS" "$TARGET"
+NS=$(cat /etc/slowdns/ns.conf)
+echo "[$(date '+%Y-%m-%d %H:%M:%S')] slowdns-ns4 start NS=$NS" >> /var/log/slowdns/ns4.log
+exec /usr/local/bin/dnstt-server -udp 0.0.0.0:5353 -privkey-file /etc/slowdns/server.key "$NS" 127.0.0.1:22
 STARTEOF
 
-chmod +x /usr/local/bin/slowdns-start.sh
+cat > /usr/local/bin/slowdns-nv4-start.sh << STARTEOF
+#!/bin/bash
+echo "[\$(date '+%Y-%m-%d %H:%M:%S')] slowdns-nv4 start" >> /var/log/slowdns/nv4.log
+exec $SLOWDNS_BIN -udp 0.0.0.0:$PORT2 -privkey-file $SLOWDNS_DIR/server.key $NV4 $BACKEND2_TARGET
+STARTEOF
 
-# ===================== SYSTEMD =====================
-cat > /etc/systemd/system/slowdns.service <<'EOF'
+chmod +x /usr/local/bin/slowdns-ns4-start.sh /usr/local/bin/slowdns-nv4-start.sh
+ok "Scripts OK"
+
+info "Création des services systemd..."
+
+for inst in ns4 nv4; do
+  logfile="/var/log/slowdns/$inst.log"
+  start_script="/usr/local/bin/slowdns-$inst-start.sh"
+  cat > "/etc/systemd/system/slowdns-$inst.service" << SERVICEEOF
 [Unit]
-Description=SlowDNS DNSTT Server
+Description=SlowDNS DNSTT $inst
 After=network-online.target
 Wants=network-online.target
-# Redémarrer même après trop d'échecs
 StartLimitIntervalSec=0
 
 [Service]
-ExecStart=/usr/local/bin/slowdns-start.sh
-# Toujours redémarrer — même si exit code non nul
+ExecStart=$start_script
 Restart=always
 RestartSec=5
-# Pas de limite de restart (évite l'état "failed" définitif)
 StartLimitBurst=0
 LimitNOFILE=1048576
-# Tuer proprement le process dnstt-server
 KillMode=process
 KillSignal=SIGTERM
 TimeoutStopSec=10
-StandardOutput=append:/var/log/slowdns.log
-StandardError=append:/var/log/slowdns.log
+StandardOutput=append:$logfile
+StandardError=append:$logfile
 
 [Install]
 WantedBy=multi-user.target
-EOF
+SERVICEEOF
+done
+ok "Services systemd OK"
 
-# ===================== NFTABLES SLOWDNS (IDEMPOTENT) =====================
+info "Override Restart=always pour dnsdist..."
+mkdir -p /etc/systemd/system/dnsdist.service.d
+cat > /etc/systemd/system/dnsdist.service.d/restart.conf << 'OVERRIDEEOF'
+[Service]
+Restart=always
+RestartSec=5
+StartLimitBurst=0
+StartLimitIntervalSec=0
+OVERRIDEEOF
+ok "dnsdist Restart=always OK"
 
-# Installer nftables si absent
-apt install -y nftables >/dev/null 2>&1
-systemctl enable nftables >/dev/null 2>&1
+info "Libération du port 53..."
+if systemctl is-active --quiet systemd-resolved 2>/dev/null; then
+  systemctl stop systemd-resolved
+  systemctl disable systemd-resolved
+  rm -f /etc/resolv.conf
+  printf 'nameserver 1.1.1.1\nnameserver 8.8.8.8\n' > /etc/resolv.conf
+  ok "systemd-resolved désactivé, resolv.conf statique"
+fi
+if ss -tulpn 2>/dev/null | grep -q ":53 "; then
+  err "Port 53 toujours occupé — libérez-le manuellement"
+  ss -tulpn | grep ":53 " || true
+  exit 1
+fi
+ok "Port 53 disponible"
 
-# Supprimer la table slowdns si elle existe déjà (nettoyage propre)
+info "Configuration dnsdist..."
+IPV6_DISABLED=$(cat /proc/sys/net/ipv6/conf/all/disable_ipv6 2>/dev/null || echo "1")
+if [[ "$IPV6_DISABLED" == "0" ]]; then
+  DNSDIST_IPV6_LINE="addLocal(\"[::]:${DNSDIST_PORT}\")"
+  ok "IPv6 actif — dnsdist écoute aussi sur [::]:$DNSDIST_PORT"
+else
+  DNSDIST_IPV6_LINE=""
+  warn "IPv6 désactivé — dnsdist IPv4 uniquement"
+fi
+
+cat > /etc/dnsdist/dnsdist.conf << DNSEOF
+setSecurityPollSuffix("")
+setACL({"0.0.0.0/0", "::/0"})
+addLocal("0.0.0.0:$DNSDIST_PORT")
+${DNSDIST_IPV6_LINE}
+newServer({address="127.0.0.1:$PORT1", pool="ns4"})
+newServer({address="127.0.0.1:$PORT2", pool="nv4"})
+addAction(makeRule("$NS4."), PoolAction("ns4"))
+addAction(makeRule("$NV4."), PoolAction("nv4"))
+addAction(AllRule(), RCodeAction(5))
+DNSEOF
+
+if dnsdist --check-config 2>/dev/null || dnsdist --check-config 2>&1 | grep -qi "ok\|success\|valid"; then
+  ok "Config dnsdist valide"
+else
+  warn "Vérifiez /etc/dnsdist/dnsdist.conf"
+fi
+
+info "Configuration nftables..."
 nft delete table ip slowdns 2>/dev/null || true
+nft delete table ip6 filter 2>/dev/null || true
 
-# Recréer la table proprement — impossible d'avoir des doublons
-nft add table ip slowdns
-nft add chain ip slowdns prerouting \
-    '{ type nat hook prerouting priority -100; policy accept; }'
-nft add rule ip slowdns prerouting udp dport 53 redirect to :5300
-nft add rule ip slowdns prerouting tcp dport 53 redirect to :5300
+cat > /etc/nftables.conf << 'NFTEOF'
+#!/usr/sbin/nft -f
+flush ruleset
+table ip filter {
+	chain KIGHMU_UDP_COUNT {
+		udp dport 5667 counter
+		udp sport 5667 counter
+		udp dport 20000-50000 counter
+		udp sport 20000-50000 counter
+	}
+	chain INPUT {
+		type filter hook input priority filter; policy accept;
+		iif lo accept
+		ct state established,related accept
+		udp dport 53 accept
+		udp dport 5353 accept
+		udp dport 5354 accept
+		tcp dport 22 accept
+		tcp dport 5401 accept
+		counter jump KIGHMU_UDP_COUNT
+	}
+	chain OUTPUT {
+		type filter hook output priority filter; policy accept;
+		counter jump KIGHMU_UDP_COUNT
+	}
+	chain FORWARD {
+		type filter hook forward priority filter; policy accept;
+	}
+}
+NFTEOF
 
-# Autoriser port 5300 en INPUT via iptables (comme avant)
-iptables -C INPUT -p udp --dport 5300 -j ACCEPT 2>/dev/null || \
-iptables -A INPUT -p udp --dport 5300 -j ACCEPT
-iptables -C INPUT -p tcp --dport 5300 -j ACCEPT 2>/dev/null || \
-iptables -A INPUT -p tcp --dport 5300 -j ACCEPT
+if [[ "$IPV6_DISABLED" == "0" ]]; then
+  cat >> /etc/nftables.conf << 'NFTEOF6'
+table ip6 filter {
+	chain INPUT {
+		type filter hook input priority filter; policy accept;
+		iif lo accept
+		ct state established,related accept
+		udp dport 53 accept
+		udp dport 5353 accept
+		udp dport 5354 accept
+		tcp dport 22 accept
+		tcp dport 5401 accept
+	}
+	chain OUTPUT { type filter hook output priority filter; policy accept; }
+	chain FORWARD { type filter hook forward priority filter; policy accept; }
+}
+NFTEOF6
+  ok "table ip6 ajoutée"
+else
+  warn "IPv6 désactivé — table ip6 ignorée"
+fi
 
-# Supprimer les anciennes règles iptables port 53 si elles existent encore
-while iptables -t nat -D PREROUTING -p udp --dport 53 \
-    -j REDIRECT --to-ports 5300 2>/dev/null; do :; done
-while iptables -t nat -D PREROUTING -p tcp --dport 53 \
-    -j REDIRECT --to-ports 5300 2>/dev/null; do :; done
+nft -f /etc/nftables.conf && ok "nftables OK" || { err "Erreur nftables"; exit 1; }
 
-# Sauvegarder nftables et iptables
-nft list ruleset > /etc/nftables.conf
-netfilter-persistent save 2>/dev/null || true
+info "Durabilité long terme..."
 
-log "✅ SlowDNS — nftables configuré (table isolée, zéro doublon possible)"
-systemctl enable slowdns
-systemctl restart slowdns
+cat > /etc/logrotate.d/slowdns << 'LOGEOF'
+/var/log/slowdns/*.log {
+    daily
+    rotate 7
+    compress
+    missingok
+    notifempty
+    copytruncate
+}
+LOGEOF
+ok "logrotate OK"
 
-log "✅ SlowDNS installé, sécurisé et compatible UDP Request"
+apt-mark hold dnsdist 2>/dev/null && ok "dnsdist verrouillé" || warn "Impossible de verrouiller dnsdist"
+
+# Cron watchdog toutes les 5 minutes (au lieu de 1x/semaine)
+CRON_JOB="*/15 * * * * systemctl is-active --quiet dnsdist slowdns-ns4 slowdns-nv4 || systemctl restart dnsdist slowdns-ns4 slowdns-nv4 >> /var/log/slowdns/watchdog.log 2>&1"
+( crontab -l 2>/dev/null | grep -v "slowdns"; echo "$CRON_JOB" ) | crontab -
+ok "Cron watchdog toutes les 15 min"
+
+# Cron mise à jour IP Cloudflare toutes les 10 minutes
+UPDATE_IP_SCRIPT="/usr/local/bin/slowdns-update-ip.sh"
+cat > "$UPDATE_IP_SCRIPT" << IPEOF
+#!/bin/bash
+NEW_IP=\$(curl -s ipv4.icanhazip.com)
+ENV_FILE="$SLOWDNS_DIR/install.env"
+[[ -z "\$NEW_IP" ]] && exit 0
+OLD_IP=\$(grep "^IP_PUBLIC=" "\$ENV_FILE" 2>/dev/null | cut -d= -f2)
+[[ "\$NEW_IP" == "\$OLD_IP" ]] && exit 0
+ZONE="$CF_ZONE_ID"
+TOKEN="$CF_API_TOKEN"
+for NAME in $FQDN_A1 $FQDN_A2; do
+  REC_ID=\$(curl -s "https://api.cloudflare.com/client/v4/zones/\$ZONE/dns_records?type=A&name=\$NAME" \
+    -H "Authorization: Bearer \$TOKEN" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
+  [[ -z "\$REC_ID" ]] && continue
+  curl -s -X PATCH "https://api.cloudflare.com/client/v4/zones/\$ZONE/dns_records/\$REC_ID" \
+    -H "Authorization: Bearer \$TOKEN" -H "Content-Type: application/json" \
+    --data "{\"content\":\"\$NEW_IP\"}" > /dev/null
+done
+sed -i "s/^IP_PUBLIC=.*/IP_PUBLIC=\$NEW_IP/" "\$ENV_FILE" 2>/dev/null || echo "IP_PUBLIC=\$NEW_IP" >> "\$ENV_FILE"
+echo "[\$(date '+%Y-%m-%d %H:%M:%S')] IP mise à jour : \$OLD_IP → \$NEW_IP" >> /var/log/slowdns/watchdog.log
+IPEOF
+chmod +x "$UPDATE_IP_SCRIPT"
+IP_CRON="*/30 * * * * $UPDATE_IP_SCRIPT"
+( crontab -l 2>/dev/null | grep -v "slowdns-update-ip"; echo "$IP_CRON" ) | crontab -
+ok "Cron IP Cloudflare toutes les 30 min"
+
+info "Démarrage des services..."
+systemctl daemon-reload
+
+for svc in dnsdist slowdns-ns4 slowdns-nv4; do
+  systemctl enable "$svc" 2>/dev/null || true
+  systemctl restart "$svc" 2>/dev/null || true
+  sleep 1
+  if systemctl is-active --quiet "$svc"; then
+    ok "$svc → actif"
+  else
+    err "$svc → échec (journalctl -u $svc -n 20 --no-pager)"
+  fi
+done
+
+sep
+echo -e "  ${B}VÉRIFICATION FINALE${NC}"
+echo ""
+for svc in dnsdist slowdns-ns4 slowdns-nv4; do
+  status=$(systemctl is-active "$svc" 2>/dev/null)
+  [[ "$status" == "active" ]] && ok "$svc : $status" || err "$svc : $status"
+done
+
+echo ""
+echo -e "  ${C}Ports :${NC}"
+for p in $DNSDIST_PORT $PORT1 $PORT2 5401 22; do
+  ss -tulpn 2>/dev/null | grep -q ":$p " && ok "Port $p OK" || warn "Port $p absent"
+done
+
+echo ""
+echo -e "  ${C}Tests DNS :${NC}"
+echo -e "  dig abc.$NS4 @127.0.0.1  → NXDOMAIN"
+echo -e "  dig abc.$NV4 @127.0.0.1  → NXDOMAIN"
+echo -e "  dig other.com @127.0.0.1 → REFUSED"
+echo ""
+echo -e "  ${C}Logs :${NC}"
+echo -e "  tail -f /var/log/slowdns/ns4.log"
+echo -e "  tail -f /var/log/slowdns/nv4.log"
+echo -e "  tail -f /var/log/slowdns/watchdog.log"
+
+sep
+echo -e "  ${Y}Rollback :${NC} $BACKUP_DIR"
+echo -e "  systemctl stop slowdns-ns4 slowdns-nv4 dnsdist"
+echo -e "  systemctl disable slowdns-ns4 slowdns-nv4 dnsdist"
+echo -e "  rm -f /etc/systemd/system/slowdns-*.service"
+echo -e "  rm -f /etc/systemd/system/dnsdist.service.d/restart.conf"
+echo -e "  rm -f $SLOWDNS_BIN /usr/local/bin/slowdns-*"
+echo -e "  rm -f /etc/dnsdist/dnsdist.conf /etc/logrotate.d/slowdns"
+echo -e "  cp $BACKUP_DIR/nftables.conf /etc/nftables.conf && nft -f /etc/nftables.conf"
+echo -e "  systemctl daemon-reload"
+
+sep
+echo -e "  ${G}${B}Installation terminée.${NC}"
+echo -e "  Instance #1 : ${Y}$NS4${NC} → SSH:22"
+echo -e "  Instance #2 : ${Y}$NV4${NC} → V2Ray:5401"
+echo ""
