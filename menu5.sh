@@ -76,24 +76,52 @@ afficher_modes_ports() {
 
 # --- Fonctions d'installation et désinstallation existantes ---
 install_slowdns() {
-    echo ">>> Nettoyage avant installation SlowDNS..."
-    pkill -f slowdns || true
-    rm -rf "$HOME/.slowdns"
-    rm -f /usr/local/bin/slowdns
-    systemctl stop slowdns.service 2>/dev/null || true
-    systemctl disable slowdns.service 2>/dev/null || true
-    rm -f /etc/systemd/system/slowdns.service
-    systemctl daemon-reload
+  echo ">>> Nettoyage avant installation SlowDNS v3..."
 
-    # Suppression règles iptables port 5300
-    iptables -D INPUT -p udp --dport 5300 -j ACCEPT 2>/dev/null || true
-    iptables -D INPUT -p tcp --dport 5300 -j ACCEPT 2>/dev/null || true
-    # Suppression table nftables slowdns si elle existe
-    nft delete table ip slowdns 2>/dev/null || true
-    netfilter-persistent save 2>/dev/null || true
+  # Arrêt et suppression des anciens services (v1 et v3)
+  for svc in slowdns slowdns-ns4 slowdns-nv4; do
+    systemctl stop "$svc" 2>/dev/null || true
+    systemctl disable "$svc" 2>/dev/null || true
+  done
+  rm -f /etc/systemd/system/slowdns.service
+  rm -f /etc/systemd/system/slowdns-ns4.service
+  rm -f /etc/systemd/system/slowdns-nv4.service
+  rm -f /etc/systemd/system/dnsdist.service.d/restart.conf
+  rmdir /etc/systemd/system/dnsdist.service.d 2>/dev/null || true
+  systemctl stop dnsdist 2>/dev/null || true
+  systemctl disable dnsdist 2>/dev/null || true
+  systemctl daemon-reload
 
-    echo ">>> Installation/configuration SlowDNS..."
-    bash "$HOME/Kighmu/slowdns.sh" || echo "SlowDNS : script introuvable."
+  # Kill processus résiduels
+  pkill -15 -f dnstt-server 2>/dev/null || true
+  pkill -15 -f slowdns 2>/dev/null || true
+  sleep 2
+  pkill -9 -f dnstt-server 2>/dev/null || true
+
+  # Suppression fichiers v1 et v3
+  rm -f /usr/local/bin/dnstt-server
+  rm -f /usr/local/bin/slowdns
+  rm -f /usr/local/bin/slowdns-ns4-start.sh
+  rm -f /usr/local/bin/slowdns-nv4-start.sh
+  rm -f /usr/local/bin/slowdns-update-ip.sh
+  rm -rf /etc/slowdns
+  rm -rf "$HOME/.slowdns"
+  rm -rf /var/log/slowdns
+  rm -f /etc/logrotate.d/slowdns
+  rm -f /etc/dnsdist/dnsdist.conf
+
+  # Suppression crons slowdns
+  ( crontab -l 2>/dev/null | grep -v "slowdns" ) | crontab -
+
+  # Nettoyage firewall (v1 iptables + v3 nftables)
+  nft delete table ip slowdns 2>/dev/null || true
+  nft delete table ip filter 2>/dev/null || true
+  nft delete table ip6 filter 2>/dev/null || true
+  apt-mark unhold dnsdist 2>/dev/null || true
+  netfilter-persistent save 2>/dev/null || true
+
+  echo ">>> Installation SlowDNS v3..."
+  bash "$HOME/Kighmu/slowdns.sh" || echo "SlowDNS v3 : script introuvable."
 }
 
 uninstall_slowdns() {
