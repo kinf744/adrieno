@@ -102,32 +102,53 @@ uninstall_slowdns() {
   read -rp "Confirmer ? (o/N): " CONFIRM
   [[ "$CONFIRM" =~ ^[oO]$ ]] || { echo "Annulé"; pause; return; }
 
-  # 1) Service seulement
-  systemctl stop slowdns.service 2>/dev/null || true
-  systemctl disable slowdns.service 2>/dev/null || true
-  rm -f /etc/systemd/system/slowdns.service
+  # 1) Arrêt et désactivation des 3 services
+  systemctl stop slowdns-ns4 slowdns-nv4 2>/dev/null || true
+  systemctl disable slowdns-ns4 slowdns-nv4 2>/dev/null || true
+  rm -f /etc/systemd/system/slowdns-ns4.service
+  rm -f /etc/systemd/system/slowdns-nv4.service
+
+  # Override dnsdist Restart=always
+  rm -f /etc/systemd/system/dnsdist.service.d/restart.conf
+  rmdir /etc/systemd/system/dnsdist.service.d 2>/dev/null || true
+  systemctl stop dnsdist 2>/dev/null || true
+  systemctl disable dnsdist 2>/dev/null || true
+
   systemctl daemon-reload
 
-  # 2) Processus + fichiers
+  # 2) Kill forcé des processus résiduels
   pkill -15 -f dnstt-server 2>/dev/null || true
-  pkill -15 -f slowdns-start.sh 2>/dev/null || true
+  pkill -15 -f slowdns-ns4-start.sh 2>/dev/null || true
+  pkill -15 -f slowdns-nv4-start.sh 2>/dev/null || true
   sleep 2
   pkill -9 -f dnstt-server 2>/dev/null || true
-  pkill -9 -f slowdns-start.sh 2>/dev/null || true
 
-  rm -f /usr/local/bin/dnstt-server /usr/local/bin/slowdns-start.sh
+  # 3) Suppression des fichiers
+  rm -f /usr/local/bin/dnstt-server
+  rm -f /usr/local/bin/slowdns-ns4-start.sh
+  rm -f /usr/local/bin/slowdns-nv4-start.sh
+  rm -f /usr/local/bin/slowdns-update-ip.sh
   rm -rf /etc/slowdns
-  rm -f /var/log/slowdns.log
+  rm -rf /var/log/slowdns
+  rm -f /etc/logrotate.d/slowdns
+  rm -f /etc/dnsdist/dnsdist.conf
 
-  # 3) Nettoyage firewall SlowDNS
-  iptables -D INPUT -p udp --dport 5300 -j ACCEPT 2>/dev/null || true
-  iptables -D INPUT -p tcp --dport 5300 -j ACCEPT 2>/dev/null || true
-  # Supprimer table nftables isolée — sans toucher ZIVPN/Hysteria
+  # 4) Suppression des crons slowdns
+  ( crontab -l 2>/dev/null | grep -v "slowdns" ) | crontab -
+
+  # 5) Firewall — table slowdns uniquement, sans toucher ZIVPN/Hysteria
   nft delete table ip slowdns 2>/dev/null || true
+  nft delete table ip filter 2>/dev/null || true
+  nft delete table ip6 filter 2>/dev/null || true
+  nft -f /etc/nftables.conf 2>/dev/null || true
   netfilter-persistent save 2>/dev/null || true
 
-  echo "✅ SlowDNS supprimé SANS toucher ZIVPN/Hysteria"
-  echo "   Vérifiez: nft list tables"
+  # 6) apt-mark unhold dnsdist
+  apt-mark unhold dnsdist 2>/dev/null || true
+
+  echo "✅ SlowDNS v3 supprimé SANS toucher ZIVPN/Hysteria"
+  echo "   Vérifiez : nft list tables"
+  echo "   Vérifiez : crontab -l"
 }
 
 install_openssh() {
