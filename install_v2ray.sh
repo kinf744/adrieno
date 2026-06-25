@@ -44,6 +44,7 @@ else
 fi
 rm -f "$SHA256_TMP"
 
+rm -rf /tmp/v2ray
 unzip -o "$V2RAY_TMP" -d /tmp/v2ray >/dev/null 2>&1
 rm -f "$V2RAY_TMP"
 mv /tmp/v2ray/v2ray /usr/local/bin/
@@ -262,17 +263,5 @@ else
   echo -e "${RED}❌ Échec du démarrage V2Ray${RESET}"
   journalctl -u v2ray.service -n 20 --no-pager
 fi
-
-# Entrée cron
-if [[ "${1:-}" == "cron" ]]; then
-    verifier_quotas
-    purger_expires
-fi
-
-# Programme principal
-while true; do
-    afficher_menu
-    ...
-done
 
 read -p "Appuyez sur Entrée pour revenir au menu..."
