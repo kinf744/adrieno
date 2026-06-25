@@ -117,26 +117,54 @@ ajouter_client_v2ray() {
 bloquer_utilisateur() {
     local uuid="$1" nom="$2" raison="${3:-quota}"
     local config="/etc/v2ray/config.json"
+    local BLOCKED_DB="/etc/v2ray/blocked_users.json"  # ✅ AJOUTÉ
+
     [[ ! -f "$config" ]] && return 1
-    # Retirer UUID de config.json
-    local tmpfile; tmpfile=$(mktemp)
+
+    local tmpfile
+    tmpfile=$(mktemp)
+    trap 'rm -f "$tmpfile"' EXIT INT TERM  # ✅ Nettoyage garanti
+
     jq --arg uuid "$uuid" '
     .inbounds |= map(
         if .protocol=="vless" or .protocol=="vmess" then
             .settings.clients |= map(select(.id != $uuid))
         else . end
     )' "$config" > "$tmpfile"
+
     if jq empty "$tmpfile" >/dev/null 2>&1; then
         mv "$tmpfile" "$config"
         systemctl restart v2ray
-        # Sauvegarder dans blocked_users.json
-        local blocked; blocked=$(cat "$BLOCKED_DB" 2>/dev/null || echo "[]")
-        blocked=$(echo "$blocked" | jq --arg u "$uuid" --arg n "$nom" --arg r "$raison" --arg d "$(date +%Y-%m-%d)"             '. += [{"uuid": $u, "nom": $n, "raison": $r, "date": $d}]')
-        echo "$blocked" > "$BLOCKED_DB"
-        echo "?? $nom bloqué ($raison)"
+
+        # ✅ CORRIGÉ : BLOCKED_DB défini + initialisation si absent/corrompu
+        local blocked
+        blocked=$(cat "$BLOCKED_DB" 2>/dev/null || echo "[]")
+        if ! echo "$blocked" | jq empty >/dev/null 2>&1; then
+            blocked="[]"
+        fi
+
+        blocked=$(echo "$blocked" | jq \
+            --arg u "$uuid" --arg n "$nom" \
+            --arg r "$raison" --arg d "$(date +%Y-%m-%d)" \
+            '. += [{"uuid": $u, "nom": $n, "raison": $r, "date": $d}]')
+
+        # ✅ Écriture atomique
+        local btmp
+        btmp=$(mktemp)
+        echo "$blocked" > "$btmp"
+        if jq empty "$btmp" >/dev/null 2>&1; then
+            mv "$btmp" "$BLOCKED_DB"
+            chmod 600 "$BLOCKED_DB"
+        else
+            rm -f "$btmp"
+        fi
+
+        echo -e "${YELLOW}🔒 $nom bloqué ($raison)${RESET}"
     else
         rm -f "$tmpfile"
     fi
+
+    trap - EXIT INT TERM
 }
 
 # ── Vérifier quotas et expirations (appelé par cron) ───────────
