@@ -263,10 +263,16 @@ else
   journalctl -u v2ray.service -n 20 --no-pager
 fi
 
-read -p "Appuyez sur Entrée pour revenir au menu..."
-
 # Entrée cron
 if [[ "${1:-}" == "cron" ]]; then
     verifier_quotas
     purger_expires
 fi
+
+# Programme principal
+while true; do
+    afficher_menu
+    ...
+done
+
+read -p "Appuyez sur Entrée pour revenir au menu..."
