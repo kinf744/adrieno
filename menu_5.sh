@@ -391,77 +391,68 @@ generer_uuid() {
     cat /proc/sys/kernel/random/uuid
 }           
     
-# ✅ CORRIGÉ: Création utilisateur avec UUID auto-ajouté
+# ── Créer un utilisateur ───────────────────────────────────────
 creer_utilisateur() {
-    local nom duree uuid date_exp domaine
+    local nom duree data_limit uuid date_exp domaine
 
     echo -n "Entrez un nom d'utilisateur : "
-    read nom
+    read -r nom
+
+    # ✅ AJOUTÉ : validation nom
+    if ! [[ "$nom" =~ ^[a-zA-Z0-9_-]{2,32}$ ]]; then
+        echo -e "${RED}❌ Nom invalide (2-32 caractères, lettres/chiffres/-/_)${RESET}"
+        read -p "Entrée pour continuer..."; return
+    fi
 
     echo -n "Durée de validité (en jours) : "
-    read duree
-
-    # Vérification durée
-    if ! [[ "$duree" =~ ^[0-9]+$ ]]; then
-        echo "❌ Durée invalide"
-        read -p "Entrée pour continuer..."
-        return
+    read -r duree
+    if ! [[ "$duree" =~ ^[0-9]+$ ]] || (( duree < 1 )); then
+        echo -e "${RED}❌ Durée invalide${RESET}"
+        read -p "Entrée pour continuer..."; return
     fi
 
     echo -n "Limite de données en Go (ex: 10.50, 0 = illimité) : "
-    read data_limit
+    read -r data_limit
     if ! [[ "$data_limit" =~ ^[0-9]+([.][0-9]{1,2})?$ ]]; then
-        echo "❌  Limite invalide (ex: 10.50 ou 0)"
-        read -p "Entrée pour continuer..."
-        return
-    fi
-    # Vérifier si utilisateur Linux existe déjà
-    if id "$nom" &>/dev/null; then
-        echo "❌ L'utilisateur Linux existe déjà"
-        read -p "Entrée pour continuer..."
-        return
+        echo -e "${RED}❌ Limite invalide (ex: 10.50 ou 0)${RESET}"
+        read -p "Entrée pour continuer..."; return
     fi
 
-    # Charger base utilisateurs
+    if id "$nom" &>/dev/null; then
+        echo -e "${RED}❌ L'utilisateur Linux existe déjà${RESET}"
+        read -p "Entrée pour continuer..."; return
+    fi
+
     charger_utilisateurs
 
-    # Génération UUID et date expiration
-    uuid=$(generer_uuid)
+    uuid=$(cat /proc/sys/kernel/random/uuid)
     date_exp=$(date -d "+${duree} days" +%Y-%m-%d)
 
-    # ===============================
     useradd -m -s /bin/bash "$nom" || {
-        echo "❌ Erreur création utilisateur Linux"
-        read -p "Entrée pour continuer..."
-        return
+        echo -e "${RED}❌ Erreur création utilisateur Linux${RESET}"
+        read -p "Entrée pour continuer..."; return
     }
-
-    # Mot de passe = UUID (même logique que tes tunnels)
     echo "$nom:$uuid" | chpasswd
-
-    # Expiration système
     chage -E "$date_exp" "$nom"
 
-    # ===============================
-    utilisateurs=$(echo "$utilisateurs" | jq --arg n "$nom" --arg u "$uuid" --arg d "$date_exp" --argjson l "${data_limit:-0}" \
+    # Ajouter dans la base JSON
+    utilisateurs=$(echo "$utilisateurs" | jq \
+        --arg n "$nom" --arg u "$uuid" --arg d "$date_exp" \
+        --argjson l "${data_limit:-0}" \
         '. += [{"nom": $n, "uuid": $u, "expire": $d, "data_limit_gb": $l, "used_bytes": 0}]')
+    sauvegarder_utilisateurs
 
-    local tmpfile=$(mktemp)
-    echo "$utilisateurs" > "$tmpfile"
-    mv "$tmpfile" "$USER_DB"
-    chmod 600 "$USER_DB"
+    # ✅ CORRIGÉ : vérification V2Ray avant ajout
+    if [[ ! -f /etc/v2ray/config.json ]]; then
+        echo -e "${YELLOW}⚠️  V2Ray non installé — option 1 obligatoire${RESET}"
+        read -p "Entrée pour continuer..."; return
+    fi
 
-    # ===============================
-    if [[ -f /etc/v2ray/config.json ]]; then
-        if ! ajouter_client_v2ray "$uuid" "$nom"; then
-            echo "❌ Erreur ajout utilisateur dans V2Ray"
-            read -p "Entrée pour continuer..."
-            return
-        fi
-    else
-        echo "⚠️ V2Ray non installé – option 1 obligatoire"
-        read -p "Entrée pour continuer..."
-        return
+    # ✅ CORRIGÉ : UN SEUL restart ici via ajouter_client_v2ray
+    # Le bloc de nettoyage des expirés a été retiré — géré par le cron uniquement
+    if ! ajouter_client_v2ray "$uuid" "$nom"; then
+        echo -e "${RED}❌ Erreur ajout dans V2Ray${RESET}"
+        read -p "Entrée pour continuer..."; return
     fi
 
     # Domaine
@@ -473,72 +464,39 @@ creer_utilisateur() {
 
     local V2RAY_INTER_PORT="5401"
     local FASTDNS_PORT="${PORT:-5400}"
+    local lien_vless="vless://${uuid}@${domaine}:${V2RAY_INTER_PORT}?type=tcp&encryption=none&host=${domaine}#${nom}-VLESS-TCP"
 
-    # FastDNS / SlowDNS
     SLOWDNS_DIR="/etc/slowdns"
-    if [[ -f "$SLOWDNS_DIR/slowdns.env" ]]; then
-        source "$SLOWDNS_DIR/slowdns.env"
-    fi
+    [[ -f "$SLOWDNS_DIR/slowdns.env" ]] && source "$SLOWDNS_DIR/slowdns.env"
     local PUB_KEY=${PUB_KEY:-$( [[ -f "$SLOWDNS_DIR/server.pub" ]] && cat "$SLOWDNS_DIR/server.pub" || echo "clé_non_disponible" )}
     local NAMESERVER=${NS:-$( [[ -f "$SLOWDNS_DIR/ns.conf" ]] && cat "$SLOWDNS_DIR/ns.conf" || echo "NS_non_defini" )}
 
-    # Génération lien V2Ray
-    generer_liens_v2ray "$nom" "$domaine" "$V2RAY_INTER_PORT" "$uuid"
-
-    # ===============================
-    TODAY=$(date +%Y-%m-%d)
-
-    # Filtrer utilisateurs valides
-    utilisateurs_valides=$(echo "$utilisateurs" | jq --arg today "$TODAY" '[.[] | select(.expire >= $today)]')
-    uuids_expire=$(echo "$utilisateurs" | jq --arg today "$TODAY" -r '.[] | select(.expire < $today) | .uuid')
-
-    if [[ -f /etc/v2ray/config.json ]]; then
-        tmpfile=$(mktemp)
-        jq --argjson uuids "$(echo "$uuids_expire" | jq -R -s -c 'split("\n")[:-1]')" '
-            .inbounds |= map(
-                if .protocol=="vless" then
-                    .settings.clients |= map(select(.id as $id | $uuids | index($id) | not))
-                else .
-                end
-            )
-        ' /etc/v2ray/config.json > "$tmpfile"
-        mv "$tmpfile" /etc/v2ray/config.json
-        systemctl restart v2ray
-    fi
-
-    # Sauvegarder uniquement les utilisateurs valides
-    utilisateurs="$utilisateurs_valides"
-    sauvegarder_utilisateurs
-
-    # ===============================
     clear
     echo -e "${GREEN}============================================"
     echo -e "🧩 VLESS TCP + FASTDNS"
-    echo -e "===================================================="
+    echo -e "====================================================${RESET}"
     echo -e "📄 Configuration pour : ${YELLOW}$nom${RESET}"
     echo -e "-------------------------------------------------------------"
     echo -e "➤ DOMAINE : ${GREEN}$domaine${RESET}"
     echo -e "➤ PORTS :"
-    echo -e "   FastDNS UDP: ${GREEN}$FASTDNS_PORT${RESET}"
-    echo -e "   V2Ray TCP  : ${GREEN}$V2RAY_INTER_PORT${RESET}"
+    echo -e "   FastDNS UDP : ${GREEN}$FASTDNS_PORT${RESET}"
+    echo -e "   V2Ray TCP   : ${GREEN}$V2RAY_INTER_PORT${RESET}"
     echo -e "➤ UUID / Password : ${GREEN}$uuid${RESET}"
-    echo -e "➤ Validité : ${YELLOW}$duree${RESET} jours (expire: $date_exp)"
+    echo -e "➤ Validité : ${YELLOW}$duree${RESET} jours (expire : $date_exp)"
     if [[ "$data_limit" == "0" ]]; then
-        echo -e "➤ Quota    : ${GREEN}Illimité${RESET}"
+        echo -e "➤ Quota : ${GREEN}Illimité${RESET}"
     else
-        echo -e "➤ Quota    : ${GREEN}${data_limit} Go${RESET}"
+        echo -e "➤ Quota : ${GREEN}${data_limit} Go${RESET}"
     fi
     echo ""
-    echo -e "${GREEN}━━━━━━━━━━━━━  CONFIGS SLOWDNS PORT 5400 ━━━━━━━━━━━━━●"
-    echo -e "${CYAN}Clé publique FastDNS:${RESET}"
-    echo -e "$PUB_KEY"
-    echo -e "${CYAN}NameServer:${RESET} $NAMESERVER"
+    echo -e "${GREEN}━━━━━━━━━━━━━  CONFIGS SLOWDNS PORT 5400 ━━━━━━━━━━━━━●${RESET}"
+    echo -e "${CYAN}Clé publique FastDNS :${RESET} $PUB_KEY"
+    echo -e "${CYAN}NameServer :${RESET} $NAMESERVER"
     echo ""
-    echo -e "${GREEN}●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━●"
-    echo -e "${YELLOW}┃ Lien VLESS  : $lien_vless${RESET}"
-    echo -e "${GREEN}●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━●"
+    echo -e "${GREEN}●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━●${RESET}"
+    echo -e "${YELLOW}┃ Lien VLESS : $lien_vless${RESET}"
+    echo -e "${GREEN}●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━●${RESET}"
     echo ""
-
     read -p "Appuyez sur Entrée pour continuer..."
 }
 
