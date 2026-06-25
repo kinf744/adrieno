@@ -1,14 +1,6 @@
 #!/bin/bash
 set -euo pipefail
 
-# ================================================================
-# SlowDNS v2 — Installation Dual-Instance avec dnsdist
-# Architecture :
-#   Port 53 → dnsdist
-#     ├── Instance #1 (port 5353) → SSH:22
-#     └── Instance #2 (port 5354) → V2Ray:5401
-# ================================================================
-
 R='\033[0;31m'; G='\033[0;32m'; Y='\033[1;33m'; C='\033[0;36m'; B='\033[1m'; NC='\033[0m'
 info() { echo -e "  ${C}[•]${NC} $1"; }
 ok()   { echo -e "  ${G}[✓]${NC} $1"; }
@@ -335,9 +327,9 @@ CRON_JOB="*/15 * * * * systemctl is-active --quiet dnsdist slowdns-ns4 slowdns-n
 ( crontab -l 2>/dev/null | grep -v "slowdns"; echo "$CRON_JOB" ) | crontab -
 ok "Cron watchdog toutes les 15 min"
 
-# Cron mise à jour IP Cloudflare toutes les 10 minutes
-UPDATE_IP_SCRIPT="/usr/local/bin/slowdns-update-ip.sh"
-cat > "$UPDATE_IP_SCRIPT" << IPEOF
+if [[ "$MODE" == "auto" ]]; then
+  UPDATE_IP_SCRIPT="/usr/local/bin/slowdns-update-ip.sh"
+  cat > "$UPDATE_IP_SCRIPT" << IPEOF
 #!/bin/bash
 NEW_IP=\$(curl -s ipv4.icanhazip.com)
 ENV_FILE="$SLOWDNS_DIR/install.env"
@@ -355,12 +347,15 @@ for NAME in $FQDN_A1 $FQDN_A2; do
     --data "{\"content\":\"\$NEW_IP\"}" > /dev/null
 done
 sed -i "s/^IP_PUBLIC=.*/IP_PUBLIC=\$NEW_IP/" "\$ENV_FILE" 2>/dev/null || echo "IP_PUBLIC=\$NEW_IP" >> "\$ENV_FILE"
-echo "[\$(date '+%Y-%m-%d %H:%M:%S')] IP mise à jour : \$OLD_IP → \$NEW_IP" >> /var/log/slowdns/watchdog.log
+echo "[\$(date '+%Y-%m-%d %H:%M:%S')] IP mise a jour : \$OLD_IP -> \$NEW_IP" >> /var/log/slowdns/watchdog.log
 IPEOF
-chmod +x "$UPDATE_IP_SCRIPT"
-IP_CRON="*/30 * * * * $UPDATE_IP_SCRIPT"
-( crontab -l 2>/dev/null | grep -v "slowdns-update-ip"; echo "$IP_CRON" ) | crontab -
-ok "Cron IP Cloudflare toutes les 30 min"
+  chmod +x "$UPDATE_IP_SCRIPT"
+  IP_CRON="*/30 * * * * $UPDATE_IP_SCRIPT"
+  ( crontab -l 2>/dev/null | grep -v "slowdns-update-ip"; echo "$IP_CRON" ) | crontab -
+  ok "Cron IP Cloudflare toutes les 30 min"
+else
+  warn "Mode manuel — cron IP Cloudflare ignore"
+fi
 
 info "Démarrage des services..."
 systemctl daemon-reload
