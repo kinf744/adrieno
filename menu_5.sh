@@ -173,53 +173,57 @@ verifier_quotas() {
     local today; today=$(date +%Y-%m-%d)
     local count; count=$(echo "$utilisateurs" | jq length)
     (( count == 0 )) && return
-    # Lire stats v2ray API
-    local api_raw
-    api_raw=$("$V2RAY_BIN" api stats --server="$V2RAY_API" -reset 2>/dev/null) || true
+
+    # ✅ CORRIGÉ : parsing JSON natif au lieu du regex fragile
     declare -A used_bytes_map=()
-    while IFS= read -r line; do
-        if [[ "$line" =~ user\>\>\>([^\>]+)\>\>\>traffic\>\>\>(up|down)link ]]; then
-            local user="${BASH_REMATCH[1]}" dir="${BASH_REMATCH[2]}"
-            local bytes=0
-            if [[ "$line" =~ ([0-9]+\.?[0-9]*)([KMGT]?B) ]]; then
-                local num="${BASH_REMATCH[1]}" unit="${BASH_REMATCH[2]}"
-                case "$unit" in
-                    B)  bytes=$(awk "BEGIN {printf "%d", $num}") ;;
-                    KB) bytes=$(awk "BEGIN {printf "%d", $num * 1024}") ;;
-                    MB) bytes=$(awk "BEGIN {printf "%d", $num * 1048576}") ;;
-                    GB) bytes=$(awk "BEGIN {printf "%d", $num * 1073741824}") ;;
-                esac
+    local api_json
+    api_json=$("$V2RAY_BIN" api statsquery --server="$V2RAY_API" -reset 2>/dev/null) || true
+
+    if echo "$api_json" | jq empty >/dev/null 2>&1; then
+        while IFS=$'\t' read -r name value; do
+            if [[ "$name" =~ user\>\>\>([^\>]+)\>\>\>traffic\>\>\> ]]; then
+                local user="${BASH_REMATCH[1]}"
+                local bytes="${value:-0}"
+                used_bytes_map["$user"]=$(( ${used_bytes_map["$user"]:-0} + bytes ))
             fi
-            used_bytes_map["$user"]=$(( ${used_bytes_map["$user"]:-0} + bytes ))
-        fi
-    done <<< "$api_raw"
-    # Accumuler used_bytes dans utilisateurs.json
+        done < <(echo "$api_json" | jq -r '.stat[]? | [.name, (.value // "0")] | @tsv' 2>/dev/null)
+    else
+        echo -e "${YELLOW}⚠️  API stats indisponible — quotas non vérifiés ce cycle${RESET}"
+        return
+    fi
+
     local changed=0
     for i in $(seq 0 $((count - 1))); do
-        local nom uuid expire limit used
-        nom=$(echo "$utilisateurs"    | jq -r ".[$i].nom")
-        uuid=$(echo "$utilisateurs"   | jq -r ".[$i].uuid")
-        expire=$(echo "$utilisateurs" | jq -r ".[$i].expire")
-        limit=$(echo "$utilisateurs"  | jq -r ".[$i].data_limit_gb // 0")
-        used=$(echo "$utilisateurs"   | jq -r ".[$i].used_bytes // 0")
-        # Ajouter trafic de cette période
+        # ✅ CORRIGÉ : tous les champs en une seule invocation jq
+        local fields
+        fields=$(echo "$utilisateurs" | jq -r \
+            ".[$i] | [.nom, .uuid, .expire, (.data_limit_gb // 0 | tostring), (.used_bytes // 0 | tostring)] | @tsv")
+        IFS=$'\t' read -r nom uuid expire limit used <<< "$fields"
+
         local new_bytes="${used_bytes_map[$nom]:-0}"
         local total_used=$(( used + new_bytes ))
-        utilisateurs=$(echo "$utilisateurs" | jq --argjson i $i --argjson b $total_used             '.[$i].used_bytes = $b')
+
+        utilisateurs=$(echo "$utilisateurs" | jq \
+            --argjson i "$i" --argjson b "$total_used" \
+            '.[$i].used_bytes = $b')
         changed=1
+
         # Vérifier expiration
         if [[ "$expire" < "$today" ]]; then
             bloquer_utilisateur "$uuid" "$nom" "expiration"
             continue
         fi
+
         # Vérifier quota (si limit > 0)
-        if (( $(echo "$limit > 0" | bc -l 2>/dev/null || echo 0) )); then
-            local limit_bytes; limit_bytes=$(awk -v l="${limit}" 'BEGIN {printf "%d", l * 1073741824}' 2>/dev/null || echo "0")
+        if awk -v l="$limit" 'BEGIN {exit !(l > 0)}'; then
+            local limit_bytes
+            limit_bytes=$(awk -v l="$limit" 'BEGIN {printf "%d", l * 1073741824}')
             if (( total_used >= limit_bytes )); then
                 bloquer_utilisateur "$uuid" "$nom" "quota"
             fi
         fi
     done
+
     [[ $changed -eq 1 ]] && sauvegarder_utilisateurs
 }
 
