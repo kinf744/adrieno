@@ -242,7 +242,13 @@ EOF
 # CRON WATCHDOG
 # ============================================================
 CRON_V2="*/15 * * * * systemctl is-active --quiet v2ray || systemctl restart v2ray >> /var/log/v2ray_watchdog.log 2>&1"
-( crontab -l 2>/dev/null | grep -v "v2ray"; echo "$CRON_V2" ) | crontab -
+CRON_PURGE="0 * * * * bash /root/Kighmu/v2ray_manager.sh cron >> /var/log/v2ray_watchdog.log 2>&1"
+
+( crontab -l 2>/dev/null \
+    | grep -v "v2ray"; \
+  echo "$CRON_V2"; \
+  echo "$CRON_PURGE" \
+) | crontab -
 
 systemctl daemon-reload
 systemctl enable v2ray.service
@@ -258,3 +264,9 @@ else
 fi
 
 read -p "Appuyez sur Entrée pour revenir au menu..."
+
+# Entrée cron
+if [[ "${1:-}" == "cron" ]]; then
+    verifier_quotas
+    purger_expires
+fi
