@@ -346,11 +346,9 @@ show_menu() {
     echo -e "${YELLOW}║ 3) Liste des utilisateurs${RESET}"
     echo -e "${YELLOW}║ 4) Supprimer un utilisateur${RESET}"
     echo -e "${YELLOW}║ 5) Désinstaller V2Ray+FastDNS${RESET}"
-    echo -e "${YELLOW}║ 6) Mode MIX (SSH + V2Ray)${RESET}"
-    echo -e "${YELLOW}║ 7) Mode V2RAY ONLY${RESET}"
-    echo -e "${YELLOW}║ 8) Bot telegram${RESET}"
-    echo -e "${YELLOW}║ 9) Pannel Web${RESET}"
-    echo -e "${YELLOW}║ 10) vless GC${RESET}"
+    echo -e "${YELLOW}║ 6) Bot telegram${RESET}"
+    echo -e "${YELLOW}║ 7) Pannel Web${RESET}"
+    echo -e "${YELLOW}║ 8) vless GC${RESET}"
     echo -e "${RED}║ 0) Quitter${RESET}"
     echo -e "${CYAN}╚═════════════════════════════════════════════════════╝${RESET}"
     echo -n "Choisissez une option : "
@@ -744,12 +742,6 @@ while true; do
             desinstaller_v2ray
             ;;
         6)
-            basculer_mode_mix
-            ;;
-        7)
-            basculer_mode_v2only
-            ;;
-        8)
             echo "📡 Ouverture du panneau de contrôle du bot Telegram..."
             
             # Vérifie que le script existe
@@ -767,7 +759,7 @@ while true; do
             # Lancer le panneau dans le terminal
             "$SCRIPT_DIR/bot2_pannel.sh"
             ;;
-        8)
+        7)
             echo "📡 Ouverture du panneau de contrôle du pannel web..."
             
             # Vérifie que le script existe
@@ -785,7 +777,7 @@ while true; do
             # Lancer le panneau dans le terminal
             "$SCRIPT_DIR/install-1.sh"
             ;;
-        9)
+        8)
             echo "📡 Ouverture du bot vless Gc web..."
             
             # Vérifie que le script existe
