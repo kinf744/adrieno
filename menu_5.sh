@@ -500,6 +500,70 @@ creer_utilisateur() {
     read -p "Appuyez sur Entrée pour continuer..."
 }
 
+# ── Purger les utilisateurs expirés (cron uniquement) ──────────
+# ✅ NOUVEAU : isolée de creer_utilisateur() pour éviter le double restart
+purger_expires() {
+    charger_utilisateurs
+    local today; today=$(date +%Y-%m-%d)
+
+    # Récupérer les UUIDs expirés
+    local uuids_expire
+    uuids_expire=$(echo "$utilisateurs" | jq -r \
+        --arg today "$today" \
+        '.[] | select(.expire < $today) | .uuid')
+
+    # Rien à purger
+    [[ -z "$uuids_expire" ]] && return 0
+
+    local uuids_json
+    uuids_json=$(echo "$uuids_expire" | jq -R -s -c 'split("\n")[:-1]')
+
+    # Supprimer les UUIDs expirés de config.json
+    if [[ -f /etc/v2ray/config.json ]]; then
+        local tmpfile
+        tmpfile=$(mktemp)
+        trap 'rm -f "$tmpfile"' EXIT INT TERM
+
+        jq --argjson uuids "$uuids_json" '
+        .inbounds |= map(
+            if .protocol=="vless" then
+                .settings.clients |= map(
+                    select(.id as $id | $uuids | index($id) | not)
+                )
+            else . end
+        )' /etc/v2ray/config.json > "$tmpfile"
+
+        if jq empty "$tmpfile" >/dev/null 2>&1 && \
+           /usr/local/bin/v2ray test -config "$tmpfile" >/dev/null 2>&1; then
+            mv "$tmpfile" /etc/v2ray/config.json
+            trap - EXIT INT TERM
+
+            systemctl restart v2ray
+            sleep 2
+            if systemctl is-active --quiet v2ray; then
+                echo "$(date) — expirés purgés : $uuids_expire" >> /var/log/v2ray_watchdog.log
+            else
+                echo "$(date) — ❌ V2Ray KO après purge" >> /var/log/v2ray_watchdog.log
+                journalctl -u v2ray.service -n 10 --no-pager
+                return 1
+            fi
+        else
+            echo -e "${RED}❌ Config invalide — purge annulée${RESET}"
+            rm -f "$tmpfile"
+            trap - EXIT INT TERM
+            return 1
+        fi
+    fi
+
+    # Supprimer les expirés de utilisateurs.json
+    utilisateurs=$(echo "$utilisateurs" | jq \
+        --arg today "$today" \
+        '[.[] | select(.expire >= $today)]')
+    sauvegarder_utilisateurs
+
+    echo -e "${GREEN}✅ Utilisateurs expirés purgés${RESET}"
+}
+
 # ── Supprimer un utilisateur ───────────────────────────────────
 supprimer_utilisateur() {
     charger_utilisateurs
