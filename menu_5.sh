@@ -500,65 +500,85 @@ creer_utilisateur() {
     read -p "Appuyez sur Entrée pour continuer..."
 }
 
+# ── Supprimer un utilisateur ───────────────────────────────────
 supprimer_utilisateur() {
     charger_utilisateurs
-    count=$(echo "$utilisateurs" | jq length)
+    local count; count=$(echo "$utilisateurs" | jq length)
 
-    if [ "$count" -eq 0 ]; then
+    if (( count == 0 )); then
         echo "Aucun utilisateur à supprimer."
-        read -p "Appuyez sur Entrée pour continuer..."
-        return
+        read -p "Appuyez sur Entrée pour continuer..."; return
     fi
 
     echo "Utilisateurs actuels :"
     for i in $(seq 0 $((count - 1))); do
-        nom=$(echo "$utilisateurs" | jq -r ".[$i].nom")
-        expire=$(echo "$utilisateurs" | jq -r ".[$i].expire")
-        uuid=$(echo "$utilisateurs" | jq -r ".[$i].uuid")
+        # ✅ CORRIGÉ : un seul appel jq par ligne au lieu de 3
+        local fields
+        fields=$(echo "$utilisateurs" | jq -r ".[$i] | [.nom, .expire, .uuid] | @tsv")
+        IFS=$'\t' read -r nom expire uuid <<< "$fields"
         echo "$((i+1))) $nom | expire le $expire | UUID: $uuid"
     done
 
     echo -n "Numéro à supprimer : "
-    read choix
+    read -r choix
 
-    if (( choix < 1 || choix > count )); then
+    # ✅ AJOUTÉ : validation stricte du choix
+    if ! [[ "$choix" =~ ^[0-9]+$ ]] || (( choix < 1 || choix > count )); then
         echo "Choix invalide."
-        read -p "Appuyez sur Entrée pour continuer..."
-        return
+        read -p "Appuyez sur Entrée pour continuer..."; return
     fi
 
-    index=$((choix - 1))
-    uuid_supprime=$(echo "$utilisateurs" | jq -r ".[$index].uuid")
-    nom_supprime=$(echo "$utilisateurs" | jq -r ".[$index].nom")
+    local index=$(( choix - 1 ))
+    local fields
+    fields=$(echo "$utilisateurs" | jq -r ".[$index] | [.nom, .uuid] | @tsv")
+    IFS=$'\t' read -r nom_supprime uuid_supprime <<< "$fields"
 
-    # 🔴 Suppression dans la base utilisateurs
-    utilisateurs=$(echo "$utilisateurs" | jq "del(.[${index}])")
-    sauvegarder_utilisateurs
+    # Supprimer de la base JSON
+    utilisateurs=$(echo "$utilisateurs" | jq "del(.[$index])")
+    sauvegarder_utilisateurs || return 1
 
-    # 🔴 Suppression dans V2Ray (VLESS uniquement)
+    # ✅ CORRIGÉ : validation JSON complète avant/après via tmpfile
     if [[ -f /etc/v2ray/config.json ]]; then
+        local tmpfile
         tmpfile=$(mktemp)
+        trap 'rm -f "$tmpfile"' EXIT INT TERM
 
         jq --arg uuid "$uuid_supprime" '
         .inbounds |= map(
-            if .protocol=="vless" then
+            if .protocol=="vless" or .protocol=="vmess" then
                 .settings.clients |= map(select(.id != $uuid))
-            else .
-            end
-        )
-        ' /etc/v2ray/config.json > "$tmpfile"
+            else . end
+        )' /etc/v2ray/config.json > "$tmpfile"
 
-        if jq empty "$tmpfile" >/dev/null 2>&1; then
+        if jq empty "$tmpfile" >/dev/null 2>&1 && \
+           /usr/local/bin/v2ray test -config "$tmpfile" >/dev/null 2>&1; then
             mv "$tmpfile" /etc/v2ray/config.json
+            trap - EXIT INT TERM
+
+            # ✅ CORRIGÉ : restart avec vérification
             systemctl restart v2ray
-            echo "✅ Utilisateur supprimé de V2Ray (VLESS TCP)"
+            sleep 2
+            if systemctl is-active --quiet v2ray; then
+                echo -e "${GREEN}✅ Utilisateur supprimé de V2Ray${RESET}"
+            else
+                echo -e "${RED}❌ V2Ray n'a pas redémarré après suppression${RESET}"
+                journalctl -u v2ray.service -n 10 --no-pager
+            fi
         else
-            echo "❌ Erreur JSON après suppression V2Ray"
+            echo -e "${RED}❌ JSON ou config invalide — suppression V2Ray annulée${RESET}"
             rm -f "$tmpfile"
+            trap - EXIT INT TERM
         fi
     fi
 
-    echo "✅ Utilisateur « $nom_supprime » supprimé complètement."
+    # ✅ AJOUTÉ : suppression utilisateur Linux
+    if id "$nom_supprime" &>/dev/null; then
+        userdel -r "$nom_supprime" 2>/dev/null \
+            && echo -e "${GREEN}✅ Utilisateur Linux supprimé${RESET}" \
+            || echo -e "${YELLOW}⚠️  Impossible de supprimer l'utilisateur Linux${RESET}"
+    fi
+
+    echo -e "${GREEN}✅ Utilisateur « $nom_supprime » supprimé complètement.${RESET}"
     read -p "Appuyez sur Entrée pour continuer..."
 }
 
