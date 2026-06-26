@@ -17,7 +17,7 @@ CONFIG_FILE="$SLOWDNS_DIR/ns.conf"
 
 DOMAIN="${DOMAIN:-kingom.ggff.net}"
 IP_PUBLIC="${IP_PUBLIC:-$(curl -s ipv4.icanhazip.com || echo "127.0.0.1")}"
-BACKEND1_TARGET="${BACKEND1_TARGET:-127.0.0.1:22}"
+BACKEND1_TARGET="${BACKEND1_TARGET:-127.0.0.1:109}"
 BACKEND2_TARGET="${BACKEND2_TARGET:-127.0.0.1:5401}"
 PORT1="${PORT1:-5353}"
 PORT2="${PORT2:-5354}"
@@ -89,8 +89,8 @@ if [[ "$MODE" == "1" ]]; then
 
 elif [[ "$MODE" == "2" ]]; then
   MODE="man"
-  read -rp "  NS instance #1 (ex: ns4.kingom.ggff.net) : " NS4
-  read -rp "  NS instance #2 (ex: nv4.kingom.ggff.net) : " NV4
+  read -rp "  NS instance #1 (ssh) (ex: ns4.kingom.ggff.net) : " NS4
+  read -rp "  NS instance #2 (v2ray) (ex: nv4.kingom.ggff.net) : " NV4
   ok "NS #1 : $NS4"
   ok "NS #2 : $NV4"
 else
