@@ -286,6 +286,8 @@ FILES=(
   "admin.html"
   "reseller.html"
   "server.js"
+  "nginx.example"
+  "ecosystem.config.js"
   "kighmu-server.sh"
   "index.html"
   "vless_bot.py"
