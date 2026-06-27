@@ -152,7 +152,7 @@ cat > /usr/local/bin/slowdns-ns4-start.sh << 'STARTEOF'
 #!/bin/bash
 NS=$(cat /etc/slowdns/ns.conf)
 echo "[$(date '+%Y-%m-%d %H:%M:%S')] slowdns-ns4 start NS=$NS" >> /var/log/slowdns/ns4.log
-exec /usr/local/bin/dnstt-server -udp 0.0.0.0:5353 -privkey-file /etc/slowdns/server.key "$NS" 127.0.0.1:22
+exec /usr/local/bin/dnstt-server -udp 0.0.0.0:5353 -privkey-file /etc/slowdns/server.key "$NS" 127.0.0.1:109
 STARTEOF
 
 cat > /usr/local/bin/slowdns-nv4-start.sh << STARTEOF
