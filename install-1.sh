@@ -453,13 +453,11 @@ ENVFILE
 }
 PKG
 
-  if [[ ! -d "$INSTALL_DIR/node_modules" ]]; then
-    info "Installation des dépendances Node.js..."
-    cd "$INSTALL_DIR" && npm install --production --quiet 2>/dev/null
-    ok "Dépendances npm installées"
-  else
-    ok "Dépendances Node.js déjà présentes — skip"
-  fi
+  info "Installation des dépendances Node.js..."
+cd "$INSTALL_DIR"
+rm -rf node_modules package-lock.json 2>/dev/null || true
+npm install --production --quiet 2>/dev/null
+ok "Dépendances npm installées"
 
   # ── Création compte admin ───────────────────────────────────
   info "Création du compte administrateur..."
