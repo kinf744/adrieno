@@ -24,7 +24,7 @@ RESET="\u001B[0m"
 SLOWDNS_DIR="/etc/slowdns_v2ray"
 SLOWDNS_BIN="/usr/local/bin/dns-server"
 PORT=5400
-CONFIG_FILE="$SLOWDNS_DIR/ns.conf"
+CONFIG_FILE="$SLOWDNS_DIR/nv4/ns.conf"
 SERVER_KEY="$SLOWDNS_DIR/server.key"
 SERVER_PUB="$SLOWDNS_DIR/server.pub"
 
