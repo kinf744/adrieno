@@ -62,15 +62,15 @@ apt install -y iptables nginx haproxy iptables-persistent curl socat xz-utils wg
   unzip jq ca-certificates libcap2-bin lsof
 ok "Dépendances installées."
 
-# ========== IPTABLES ==========
-info "Configuration iptables..."
-for port in 80 81 8880 8443; do
-  iptables -C INPUT -p tcp --dport $port -j ACCEPT 2>/dev/null || iptables -A INPUT -p tcp --dport $port -j ACCEPT
-done
-iptables -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
-iptables -A OUTPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
-netfilter-persistent save
-ok "Ports ouverts : 80, 81, 8880, 8443"
+# ========== DÉPENDANCES ==========
+info "Installation des dépendances..."
+apt-mark hold nodejs npm 2>/dev/null || true
+apt update -y
+apt install -y iptables nginx haproxy iptables-persistent curl socat xz-utils wget \
+  apt-transport-https gnupg dnsutils lsb-release cron bash-completion ntpdate chrony \
+  unzip jq ca-certificates libcap2-bin lsof
+apt-mark unhold nodejs npm 2>/dev/null || true
+ok "Dépendances installées."
 
 # ========== XRAY v26.1.23 ==========
 info "Installation Xray v${XRAY_VER}..."
