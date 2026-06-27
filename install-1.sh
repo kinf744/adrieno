@@ -456,7 +456,7 @@ PKG
   info "Installation des dépendances Node.js..."
 cd "$INSTALL_DIR"
 rm -rf node_modules package-lock.json 2>/dev/null || true
-npm install --production --quiet 2>/dev/null
+NODE_OPTIONS="--dns-result-order=ipv4first" npm install --production --quiet 2>/dev/null
 ok "Dépendances npm installées"
 
   # ── Création compte admin ───────────────────────────────────
