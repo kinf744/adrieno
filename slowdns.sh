@@ -17,11 +17,11 @@ CONFIG_FILE="$SLOWDNS_DIR/ns.conf"
 
 DOMAIN="${DOMAIN:-kingom.ggff.net}"
 IP_PUBLIC="${IP_PUBLIC:-$(curl -s ipv4.icanhazip.com || echo "127.0.0.1")}"
-BACKEND1_TARGET="${BACKEND1_TARGET:-127.0.0.1:109}"
+BACKEND1_TARGET="${BACKEND1_TARGET:-127.0.0.1:22}"
 BACKEND2_TARGET="${BACKEND2_TARGET:-127.0.0.1:5401}"
 PORT1="${PORT1:-5353}"
 PORT2="${PORT2:-5354}"
-DNSDIST_PORT="${DNSDIST_PORT:-53}"
+DNSDIST_PORT="${DNSDIST_PORT:-5300}"
 
 DNSTT_PRIV_KEY="4ab3af05fc004cb69d50c89de2cd5d138be1c397a55788b8867088e801f7fcaa"
 DNSTT_PUB_KEY="2cb39d63928451bd67f5954ffa5ac16c8d903562a10c4b21756de4f1a82d581c"
@@ -97,10 +97,10 @@ else
   err "Mode invalide."; exit 1
 fi
 
-printf 'MODE=%s\nNS4=%s\nNV4=%s\nDOMAIN=%s\n' "$MODE" "$NS4" "$NV4" "$DOMAIN" > "$SLOWDNS_DIR/install.env"
+printf 'MODE=%s\nNS4=%s\nNV4=%s\nDOMAIN=%s\nIP_PUBLIC=%s\n' "$MODE" "$NS4" "$NV4" "$DOMAIN" "$IP_PUBLIC" > "$SLOWDNS_DIR/install.env"
 
 sep
-echo -e "  ${C}Port $DNSDIST_PORT${NC} → dnsdist"
+echo -e "  ${C}Port 53${NC} → nftables DNAT → ${C}Port $DNSDIST_PORT${NC} (dnsdist)"
 echo -e "      ├── ${Y}$NS4${NC} → SlowDNS #1 (port $PORT1) → ${G}$BACKEND1_TARGET${NC}"
 echo -e "      └── ${Y}$NV4${NC} → SlowDNS #2 (port $PORT2) → ${G}$BACKEND2_TARGET${NC}"
 sep
@@ -119,6 +119,7 @@ info "Installation des dépendances..."
 export DEBIAN_FRONTEND=noninteractive
 apt update -qq 2>/dev/null
 apt install -y -qq curl jq dnsdist nftables iptables netfilter-persistent 2>/dev/null
+systemctl stop dnsdist 2>/dev/null || true
 ok "Dépendances OK"
 
 if [[ ! -x "$SLOWDNS_BIN" ]]; then
@@ -157,7 +158,7 @@ STARTEOF
 cat > /usr/local/bin/slowdns-nv4-start.sh << STARTEOF
 #!/bin/bash
 echo "[\$(date '+%Y-%m-%d %H:%M:%S')] slowdns-nv4 start" >> /var/log/slowdns/nv4.log
-exec $SLOWDNS_BIN -udp 0.0.0.0:$PORT2 -privkey-file $SLOWDNS_DIR/server.key $NV4 $BACKEND2_TARGET
+exec ${SLOWDNS_BIN} -udp 0.0.0.0:${PORT2} -privkey-file ${SLOWDNS_DIR}/server.key ${NV4} ${BACKEND2_TARGET}
 STARTEOF
 
 chmod +x /usr/local/bin/slowdns-ns4-start.sh /usr/local/bin/slowdns-nv4-start.sh
@@ -204,21 +205,6 @@ StartLimitIntervalSec=0
 OVERRIDEEOF
 ok "dnsdist Restart=always OK"
 
-info "Libération du port 53..."
-if systemctl is-active --quiet systemd-resolved 2>/dev/null; then
-  systemctl stop systemd-resolved
-  systemctl disable systemd-resolved
-  rm -f /etc/resolv.conf
-  printf 'nameserver 1.1.1.1\nnameserver 8.8.8.8\n' > /etc/resolv.conf
-  ok "systemd-resolved désactivé, resolv.conf statique"
-fi
-if ss -tulpn 2>/dev/null | grep -q ":53 "; then
-  err "Port 53 toujours occupé — libérez-le manuellement"
-  ss -tulpn | grep ":53 " || true
-  exit 1
-fi
-ok "Port 53 disponible"
-
 info "Configuration dnsdist..."
 IPV6_DISABLED=$(cat /proc/sys/net/ipv6/conf/all/disable_ipv6 2>/dev/null || echo "1")
 if [[ "$IPV6_DISABLED" == "0" ]]; then
@@ -241,19 +227,27 @@ addAction(makeRule("$NV4."), PoolAction("nv4"))
 addAction(AllRule(), RCodeAction(5))
 DNSEOF
 
-if dnsdist --check-config 2>/dev/null || dnsdist --check-config 2>&1 | grep -qi "ok\|success\|valid"; then
-  ok "Config dnsdist valide"
+DNSDIST_CHECK=$(dnsdist --check-config 2>&1 || true)
+if echo "$DNSDIST_CHECK" | grep -qi "error"; then
+  warn "Config dnsdist à vérifier : $DNSDIST_CHECK"
 else
-  warn "Vérifiez /etc/dnsdist/dnsdist.conf"
+  ok "Config dnsdist valide"
 fi
 
 info "Configuration nftables..."
 nft delete table ip slowdns 2>/dev/null || true
 nft delete table ip6 filter 2>/dev/null || true
 
-cat > /etc/nftables.conf << 'NFTEOF'
+cat > /etc/nftables.conf << NFTEOF
 #!/usr/sbin/nft -f
 flush ruleset
+table ip nat {
+	chain PREROUTING {
+		type nat hook prerouting priority dstnat; policy accept;
+		udp dport 53 redirect to :${DNSDIST_PORT}
+		tcp dport 53 redirect to :${DNSDIST_PORT}
+	}
+}
 table ip filter {
 	chain KIGHMU_UDP_COUNT {
 		udp dport 5667 counter
@@ -266,6 +260,7 @@ table ip filter {
 		iif lo accept
 		ct state established,related accept
 		udp dport 53 accept
+		udp dport ${DNSDIST_PORT} accept
 		udp dport 5353 accept
 		udp dport 5354 accept
 		tcp dport 22 accept
@@ -283,13 +278,21 @@ table ip filter {
 NFTEOF
 
 if [[ "$IPV6_DISABLED" == "0" ]]; then
-  cat >> /etc/nftables.conf << 'NFTEOF6'
+  cat >> /etc/nftables.conf << NFTEOF6
+table ip6 nat {
+	chain PREROUTING {
+		type nat hook prerouting priority dstnat; policy accept;
+		udp dport 53 redirect to :${DNSDIST_PORT}
+		tcp dport 53 redirect to :${DNSDIST_PORT}
+	}
+}
 table ip6 filter {
 	chain INPUT {
 		type filter hook input priority filter; policy accept;
 		iif lo accept
 		ct state established,related accept
 		udp dport 53 accept
+		udp dport ${DNSDIST_PORT} accept
 		udp dport 5353 accept
 		udp dport 5354 accept
 		tcp dport 22 accept
@@ -299,9 +302,9 @@ table ip6 filter {
 	chain FORWARD { type filter hook forward priority filter; policy accept; }
 }
 NFTEOF6
-  ok "table ip6 ajoutée"
+  ok "table ip6 nat+filter ajoutées"
 else
-  warn "IPv6 désactivé — table ip6 ignorée"
+  warn "IPv6 désactivé — tables ip6 ignorées"
 fi
 
 nft -f /etc/nftables.conf && ok "nftables OK" || { err "Erreur nftables"; exit 1; }
@@ -322,7 +325,6 @@ ok "logrotate OK"
 
 apt-mark hold dnsdist 2>/dev/null && ok "dnsdist verrouillé" || warn "Impossible de verrouiller dnsdist"
 
-# Cron watchdog toutes les 5 minutes (au lieu de 1x/semaine)
 CRON_JOB="*/15 * * * * systemctl is-active --quiet dnsdist slowdns-ns4 slowdns-nv4 || systemctl restart dnsdist slowdns-ns4 slowdns-nv4 >> /var/log/slowdns/watchdog.log 2>&1"
 ( crontab -l 2>/dev/null | grep -v "slowdns"; echo "$CRON_JOB" ) | crontab -
 ok "Cron watchdog toutes les 15 min"
@@ -354,7 +356,7 @@ IPEOF
   ( crontab -l 2>/dev/null | grep -v "slowdns-update-ip"; echo "$IP_CRON" ) | crontab -
   ok "Cron IP Cloudflare toutes les 30 min"
 else
-  warn "Mode manuel — cron IP Cloudflare ignore"
+  warn "Mode manuel — cron IP Cloudflare ignoré"
 fi
 
 info "Démarrage des services..."
@@ -381,7 +383,7 @@ done
 
 echo ""
 echo -e "  ${C}Ports :${NC}"
-for p in $DNSDIST_PORT $PORT1 $PORT2 5401 22; do
+for p in 53 $DNSDIST_PORT $PORT1 $PORT2 5401 22; do
   ss -tulpn 2>/dev/null | grep -q ":$p " && ok "Port $p OK" || warn "Port $p absent"
 done
 
