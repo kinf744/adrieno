@@ -1,0 +1,938 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Kighmu — Revendeur</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#030712;--surface:#0d1117;--card:#111827;--card2:#1a2235;--border:rgba(124,58,237,.15);--borderB:rgba(124,58,237,.4);--cyan:#00c8ff;--cyanD:rgba(0,200,255,.12);--purple:#7c3aed;--purpleD:rgba(124,58,237,.18);--green:#10b981;--greenD:rgba(16,185,129,.15);--red:#ef4444;--redD:rgba(239,68,68,.15);--yellow:#f59e0b;--yellowD:rgba(245,158,11,.15);--text:#e2e8f0;--dim:#94a3b8;--muted:#475569;--acc:#a78bfa;--mono:'JetBrains Mono',monospace;--ui:'Inter',sans-serif;--r:6px;--tr:.22s cubic-bezier(.4,0,.2,1)}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:var(--ui);font-size:15px;line-height:1.5;min-height:100vh;overflow-x:hidden}
+.grid{position:fixed;inset:0;z-index:0;pointer-events:none;background-image:linear-gradient(rgba(124,58,237,.02) 1px,transparent 1px),linear-gradient(90deg,rgba(124,58,237,.02) 1px,transparent 1px);background-size:50px 50px}
+.layout{display:flex;min-height:100vh;position:relative;z-index:1}
+.sidebar{width:230px;min-height:100vh;background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column;position:fixed;top:0;left:0;z-index:100;transition:transform var(--tr)}
+.s-logo{padding:1.25rem 1.5rem;border-bottom:1px solid var(--border)}
+.s-logo .lt{font-family:var(--mono);font-size:1.1rem;letter-spacing:.25em;background:linear-gradient(135deg,var(--acc),var(--cyan));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;text-transform:uppercase}
+.s-logo .ls{font-size:.62rem;color:var(--muted);letter-spacing:.3em;text-transform:uppercase;margin-top:2px}
+.s-nav{flex:1;padding:.75rem 0;overflow-y:auto}
+.s-sec{padding:.5rem 1rem .2rem;font-size:.62rem;letter-spacing:.3em;text-transform:uppercase;color:var(--muted)}
+.nav{display:flex;align-items:center;gap:.65rem;padding:.6rem 1.2rem;cursor:pointer;color:var(--dim);font-size:.88rem;font-weight:500;transition:all var(--tr);border-left:2px solid transparent;text-decoration:none}
+.nav:hover{color:var(--text);background:var(--purpleD)}.nav.active{color:var(--acc);background:var(--purpleD);border-left-color:var(--acc)}
+.nav .ic{width:18px}
+.s-foot{padding:.9rem 1.2rem;border-top:1px solid var(--border)}
+.s-user{font-family:var(--mono);color:var(--acc);font-size:.88rem;margin-bottom:.25rem}
+.main{margin-left:230px;flex:1;display:flex;flex-direction:column;min-height:100vh}
+.topbar{height:58px;background:var(--surface);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;padding:0 1.25rem;position:sticky;top:0;z-index:50}
+.tb-title{font-family:var(--mono);font-size:.82rem;color:var(--dim);letter-spacing:.08em}
+.tb-title span{color:var(--acc)}
+.tb-acts{display:flex;align-items:center;gap:.65rem}
+.page{padding:1.25rem;display:none}.page.active{display:block}
+.ptitle{font-size:1.4rem;font-weight:700;margin-bottom:.2rem}.psub{color:var(--dim);font-size:.82rem;margin-bottom:1.25rem}
+.sgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(185px,1fr));gap:.875rem;margin-bottom:1.25rem}
+.scard{background:var(--card);border:1px solid var(--border);border-radius:var(--r);padding:1.1rem;position:relative;overflow:hidden;transition:border-color var(--tr)}
+.scard::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,var(--purple),var(--cyan));opacity:0;transition:opacity var(--tr)}
+.scard:hover{border-color:var(--borderB)}.scard:hover::before{opacity:1}
+.scard-lbl{font-size:.67rem;letter-spacing:.2em;text-transform:uppercase;color:var(--muted);margin-bottom:.4rem}
+.scard-val{font-family:var(--mono);font-size:1.65rem}
+.scard-ico{position:absolute;top:1rem;right:1rem;font-size:1.3rem;opacity:.28}
+.scard.p .scard-val{color:var(--acc)}.scard.c .scard-val{color:var(--cyan)}.scard.g .scard-val{color:var(--green)}.scard.y .scard-val{color:var(--yellow)}
+.card{background:var(--card);border:1px solid var(--border);border-radius:var(--r);margin-bottom:1.25rem}
+.ch{display:flex;align-items:center;justify-content:space-between;padding:.875rem 1.1rem;border-bottom:1px solid var(--border)}
+.ct{font-size:.78rem;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--dim)}
+.cb{padding:1.1rem}
+.tw{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:.835rem}
+thead th{text-align:left;padding:.55rem .9rem;font-size:.67rem;letter-spacing:.15em;text-transform:uppercase;color:var(--muted);border-bottom:1px solid var(--border);background:var(--surface);font-weight:600}
+tbody tr{border-bottom:1px solid rgba(255,255,255,.03);transition:background var(--tr)}
+tbody tr:hover{background:rgba(124,58,237,.03)}
+tbody td{padding:.65rem .9rem;color:var(--dim);font-family:var(--mono);font-size:.8rem}
+td.nm{color:var(--text);font-family:var(--ui);font-weight:600}
+.b{display:inline-block;padding:.12rem .55rem;border-radius:100px;font-size:.67rem;font-weight:700;letter-spacing:.05em;text-transform:uppercase;font-family:var(--mono)}
+.bg{background:var(--greenD);color:var(--green);border:1px solid rgba(16,185,129,.3)}
+.br{background:var(--redD);color:var(--red);border:1px solid rgba(239,68,68,.3)}
+.bc{background:var(--cyanD);color:var(--cyan);border:1px solid rgba(0,200,255,.3)}
+.by{background:var(--yellowD);color:var(--yellow);border:1px solid rgba(245,158,11,.3)}
+.bp{background:var(--purpleD);color:var(--acc);border:1px solid rgba(124,58,237,.3)}
+.btn{display:inline-flex;align-items:center;gap:.45rem;padding:.48rem 1rem;border-radius:var(--r);font-family:var(--ui);font-size:.82rem;font-weight:600;cursor:pointer;border:1px solid transparent;transition:all var(--tr);white-space:nowrap}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.btn-p{background:var(--purpleD);border-color:rgba(124,58,237,.4);color:var(--acc)}.btn-p:hover:not(:disabled){background:var(--purple);color:#fff}
+.btn-c{background:var(--cyanD);border-color:rgba(0,200,255,.4);color:var(--cyan)}.btn-c:hover:not(:disabled){background:var(--cyan);color:var(--bg)}
+.btn-r{background:var(--redD);border-color:rgba(239,68,68,.4);color:var(--red)}.btn-r:hover:not(:disabled){background:var(--red);color:#fff}
+.btn-g{background:var(--greenD);border-color:rgba(16,185,129,.4);color:var(--green)}.btn-g:hover:not(:disabled){background:var(--green);color:#fff}
+.btn-gh{background:transparent;border-color:var(--border);color:var(--dim)}.btn-gh:hover:not(:disabled){border-color:var(--borderB);color:var(--text)}
+.btn-sm{padding:.28rem .65rem;font-size:.75rem}.btn-ic{padding:.35rem}
+.fgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:.875rem}
+.fg{display:flex;flex-direction:column;gap:.3rem}
+.fl{font-size:.68rem;letter-spacing:.15em;text-transform:uppercase;color:var(--muted);font-weight:600}
+.fc{background:var(--bg);border:1px solid var(--border);border-radius:var(--r);padding:.55rem .8rem;color:var(--text);font-family:var(--mono);font-size:.82rem;outline:none;transition:border-color var(--tr);width:100%}
+.fc:focus{border-color:var(--purple);box-shadow:0 0 0 2px rgba(124,58,237,.1)}
+.fc::placeholder{color:var(--muted)}
+select.fc option{background:var(--card)}
+.mo{position:fixed;inset:0;z-index:1000;background:rgba(3,7,18,.82);backdrop-filter:blur(4px);display:none;align-items:center;justify-content:center;padding:1rem}
+.mo.open{display:flex}
+.modal{background:var(--card);border:1px solid var(--borderB);border-radius:var(--r);width:100%;max-width:500px;box-shadow:0 0 60px rgba(124,58,237,.1);animation:mIn .22s ease}
+@keyframes mIn{from{opacity:0;transform:translateY(-18px) scale(.97)}to{opacity:1;transform:none}}
+.mh{display:flex;align-items:center;justify-content:space-between;padding:1.1rem 1.25rem;border-bottom:1px solid var(--border)}
+.mt{font-size:.95rem;font-weight:700}.mb{padding:1.1rem 1.25rem}
+.mf{display:flex;justify-content:flex-end;gap:.65rem;padding:.875rem 1.25rem;border-top:1px solid var(--border)}
+.prg{height:5px;background:var(--bg);border-radius:3px;overflow:hidden}
+.prg-b{height:100%;border-radius:3px;background:linear-gradient(90deg,var(--acc),var(--purple));transition:width .5s}
+.prg-b.warn{background:linear-gradient(90deg,var(--yellow),#f97316)}
+.prg-b.crit{background:linear-gradient(90deg,#f97316,var(--red));animation:pulse-q .8s ease-in-out infinite alternate}
+@keyframes pulse-q{from{opacity:1}to{opacity:.5}}
+.prg-b{height:100%;border-radius:3px;background:linear-gradient(90deg,var(--purple),var(--cyan));transition:width .5s}
+.tc{position:fixed;bottom:1.25rem;right:1.25rem;z-index:9999;display:flex;flex-direction:column;gap:.4rem}
+.toast{background:var(--card);border:1px solid var(--border);border-radius:var(--r);padding:.65rem .9rem;font-size:.8rem;min-width:230px;display:flex;align-items:center;gap:.45rem;animation:tIn .25s;box-shadow:0 4px 20px rgba(0,0,0,.4)}
+@keyframes tIn{from{opacity:0;transform:translateX(16px)}to{opacity:1}}
+.toast.s{border-left:3px solid var(--green)}.toast.e{border-left:3px solid var(--red)}.toast.i{border-left:3px solid var(--acc)}
+/* TUNNEL SELECTOR */
+.tgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(135px,1fr));gap:.65rem;margin-bottom:.875rem}
+.tc2{background:var(--surface);border:2px solid var(--border);border-radius:var(--r);padding:.85rem .6rem;cursor:pointer;text-align:center;transition:all var(--tr);user-select:none}
+.tc2:hover{border-color:var(--borderB);background:rgba(124,58,237,.05)}
+.tc2.sel{border-color:var(--acc);background:var(--purpleD);box-shadow:0 0 14px rgba(124,58,237,.15)}
+.tc2.ssh.sel{border-color:var(--green);background:var(--greenD)}
+.tc2.udp.sel{border-color:var(--red);background:var(--redD)}
+.tc2.xray.sel{border-color:var(--cyan);background:var(--cyanD)}
+.tci{font-size:1.4rem;margin-bottom:.3rem;color:var(--muted)}
+.tc2.sel .tci{color:var(--acc)}.tc2.ssh.sel .tci{color:var(--green)}.tc2.udp.sel .tci{color:var(--red)}.tc2.xray.sel .tci{color:var(--cyan)}
+.tlb{font-size:.76rem;font-weight:700;letter-spacing:.04em;color:var(--dim)}
+.tsb{font-size:.64rem;color:var(--muted);margin-top:2px}
+/* RESULT */
+.rescard{background:var(--surface);border:1px solid var(--borderB);border-radius:var(--r);margin-top:1.25rem;overflow:hidden;animation:mIn .25s}
+.rh{background:linear-gradient(90deg,rgba(124,58,237,.12),rgba(0,200,255,.08));padding:.65rem 1.1rem;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border)}
+.rt{color:var(--acc);font-weight:700;font-size:.88rem}
+.rbody{padding:1.1rem}
+.rrow{display:flex;align-items:center;gap:.9rem;padding:.5rem 0;border-bottom:1px solid rgba(255,255,255,.04)}
+.rrow:last-child{border:none}
+.rk{font-size:.67rem;letter-spacing:.2em;text-transform:uppercase;color:var(--muted);min-width:90px}
+.rv{font-family:var(--mono);font-size:.82rem;color:var(--text);word-break:break-all;flex:1}
+.rv.hi{color:var(--acc)}.rv.pw{color:var(--yellow)}.rv.uu{color:var(--dim);font-size:.76rem}
+.cpbtn{padding:.18rem .5rem;font-size:.68rem;background:var(--card2);border:1px solid var(--border);border-radius:4px;color:var(--muted);cursor:pointer;transition:all var(--tr)}
+.cpbtn:hover{border-color:var(--acc);color:var(--acc)}
+/* ── Blocs résultat création tunnel ───────────────────── */
+.tr-block{padding:1.1rem;font-family:var(--mono);font-size:.82rem;line-height:1.7}
+.tr-block.udp   {border-left:3px solid var(--red)}
+.tr-block.xray  {border-left:3px solid var(--cyan)}
+.tr-block.ssh   {border-left:3px solid var(--green)}
+.tr-block.v2ray {border-left:3px solid var(--acc)}
+.tr-title{font-size:.9rem;font-weight:700;color:var(--text);margin-bottom:.6rem;letter-spacing:.02em}
+.tr-sep{border-top:1px solid rgba(255,255,255,.07);margin:.6rem 0}
+.tr-row{display:flex;align-items:flex-start;gap:.7rem;padding:.25rem 0;flex-wrap:wrap}
+.tr-k{color:var(--muted);min-width:130px;flex-shrink:0;font-size:.75rem}
+.tr-v{color:var(--text);word-break:break-all;flex:1}
+.tr-v.hi{color:var(--acc)}.tr-v.pw{color:var(--yellow)}.tr-v.uu{color:var(--dim);font-size:.76rem}
+.tr-section-title{color:var(--muted);font-size:.72rem;margin:.35rem 0;letter-spacing:.05em;word-break:break-all}
+.tr-pubkey{background:rgba(0,0,0,.25);border-radius:5px;padding:.4rem .6rem;word-break:break-all;color:var(--green);font-size:.73rem;margin:.25rem 0}
+.tr-links-header{color:var(--muted);font-size:.72rem;margin:.35rem 0}
+.tr-link-row{display:flex;align-items:flex-start;gap:.5rem;padding:.2rem 0;flex-wrap:wrap}
+.tr-lk{color:var(--cyan);min-width:110px;font-size:.74rem;flex-shrink:0}
+.tr-lv{color:var(--dim);word-break:break-all;flex:1;font-size:.72rem}
+.tr-payload{background:rgba(0,0,0,.25);border-radius:5px;padding:.4rem .6rem;color:var(--yellow);font-size:.72rem;margin:.25rem 0;word-break:break-all}
+.tr-status{padding:.4rem .7rem;border-radius:5px;font-size:.78rem;font-weight:600;margin-top:.6rem}
+.tr-status.ok{background:rgba(72,187,120,.12);color:var(--green)}
+.tr-status.warn{background:rgba(237,137,54,.12);color:var(--yellow)}
+.ssep{display:flex;align-items:center;gap:.875rem;margin:1.25rem 0 .875rem;color:var(--muted);font-size:.68rem;letter-spacing:.2em;text-transform:uppercase;font-weight:700}
+.ssep::after{content:'';flex:1;height:1px;background:var(--border)}
+/* QUOTA BAR */
+.qbar{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:1rem 1.25rem;margin-bottom:1.25rem}
+.qrow{display:flex;justify-content:space-between;font-size:.82rem;margin-bottom:.5rem}
+.qk{color:var(--muted)}.qv{color:var(--acc);font-family:var(--mono)}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px}
+.dg{background:var(--green);box-shadow:0 0 5px var(--green)}.dr{background:var(--red)}
+.actg{display:flex;gap:.3rem}
+.sbox{position:relative;display:inline-flex;align-items:center}
+.sbox input{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:.42rem .7rem .42rem 1.85rem;color:var(--text);font-size:.78rem;outline:none;transition:border-color var(--tr)}
+.sbox input:focus{border-color:var(--purple)}
+.sbox::before{content:'⌕';position:absolute;left:.55rem;color:var(--muted);font-size:.95rem;pointer-events:none}
+.spin{display:inline-block;width:13px;height:13px;border:2px solid var(--border);border-top-color:var(--acc);border-radius:50%;animation:spin .65s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.flex{display:flex}.aic{align-items:center}.jb{justify-content:space-between}.g1{gap:.5rem}.g2{gap:.875rem}.mt1{margin-top:.5rem}.mono{font-family:var(--mono)}.muted{color:var(--muted)}.sm{font-size:.78rem}
+/* EXPIRY BANNER */
+.expbanner{background:linear-gradient(90deg,rgba(124,58,237,.08),rgba(0,200,255,.06));border:1px solid var(--border);border-radius:var(--r);padding:.75rem 1.25rem;display:flex;justify-content:space-between;flex-wrap:wrap;gap:.65rem;margin-bottom:1.25rem}
+.expitem{display:flex;flex-direction:column}
+.expk{font-size:.62rem;letter-spacing:.2em;text-transform:uppercase;color:var(--muted)}
+.expv{font-family:var(--mono);font-size:1rem;color:var(--acc)}
+/* LOGIN */
+.lpage{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:1rem;position:relative}
+.lglow{position:fixed;width:500px;height:500px;border-radius:50%;background:radial-gradient(circle,rgba(124,58,237,.07),transparent 70%);top:50%;left:50%;transform:translate(-50%,-50%);pointer-events:none}
+.lbox{background:var(--card);border:1px solid var(--borderB);border-radius:8px;padding:2.25rem;width:100%;max-width:390px;position:relative;z-index:1;box-shadow:0 0 60px rgba(124,58,237,.08)}
+.llogo{font-family:var(--mono);font-size:1.4rem;letter-spacing:.3em;text-align:center;background:linear-gradient(135deg,var(--acc),var(--cyan));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;margin-bottom:.4rem}
+.lsub{text-align:center;color:var(--muted);font-size:.7rem;letter-spacing:.3em;text-transform:uppercase;margin-bottom:1.75rem}
+.lsep{width:100%;height:1px;background:linear-gradient(90deg,transparent,var(--borderB),transparent);margin-bottom:1.75rem}
+.lerr{background:var(--redD);border:1px solid rgba(239,68,68,.3);border-radius:var(--r);padding:.55rem .9rem;color:var(--red);font-size:.78rem;margin-bottom:.875rem;display:none}
+.lbtn{width:100%;justify-content:center;padding:.7rem;font-size:.85rem;letter-spacing:.15em;text-transform:uppercase;background:linear-gradient(135deg,rgba(124,58,237,.2),rgba(0,200,255,.12));border:1px solid var(--borderB);color:var(--acc);margin-top:1.25rem}
+.lbtn:hover{background:linear-gradient(135deg,rgba(124,58,237,.38),rgba(0,200,255,.2));box-shadow:0 0 25px rgba(124,58,237,.2)}
+.mbtn{display:none;background:none;border:none;color:var(--dim);font-size:1.1rem;cursor:pointer;padding:.2rem}
+@media(max-width:768px){.sidebar{transform:translateX(-100%)}.sidebar.open{transform:none}.main{margin-left:0}.mbtn{display:block}.sgrid{grid-template-columns:1fr 1fr}.fgrid{grid-template-columns:1fr}.tgrid{grid-template-columns:repeat(3,1fr)}}
+.hidden{display:none!important}
+</style>
+</head>
+<body>
+<div class="grid"></div>
+
+<!-- LOGIN -->
+<div id="LS">
+  <div class="lpage">
+    <div class="lglow"></div>
+    <div class="lbox">
+      <div class="llogo">KIGHMU</div>
+      <div class="lsub">Espace Revendeur</div>
+      <div class="lsep"></div>
+      <div style="text-align:center;margin-bottom:1.25rem"><span class="b bp">RESELLER ACCESS</span></div>
+      <div class="lerr" id="lerr"></div>
+      <div class="fg"><label class="fl">Identifiant</label><input class="fc" id="lu" placeholder="revendeur" autocomplete="username"></div>
+      <div class="fg mt1"><label class="fl">Mot de passe</label><div class="flex g1"><input class="fc" type="password" id="lp" placeholder="••••••••" autocomplete="current-password" style="flex:1"><button class="btn btn-gh btn-sm" onclick="togglePw('lp',this)" type="button" tabindex="-1" style="font-size:1rem;line-height:1">👁</button></div></div>
+      <button class="btn lbtn" id="lbtn" onclick="doLogin()"><span id="lbl">SE CONNECTER</span></button>
+    </div>
+  </div>
+</div>
+
+<!-- PANEL -->
+<div id="PS" class="hidden">
+  <div class="layout">
+    <aside class="sidebar" id="sidebar">
+      <div class="s-logo"><div class="lt">KIGHMU</div><div class="ls">Reseller Panel</div></div>
+      <nav class="s-nav">
+        <div class="s-sec">Navigation</div>
+        <a class="nav active" data-p="dash" onclick="nav('dash')"><span class="ic">◈</span> Dashboard</a>
+        <a class="nav" data-p="create" onclick="nav('create')" style="border-left:2px solid rgba(124,58,237,.3)"><span class="ic" style="color:var(--acc)">＋</span><span style="color:var(--acc)">Créer un Client</span></a>
+        <a class="nav" data-p="clients" onclick="nav('clients');loadClients()"><span class="ic">◎</span> Mes Clients</a>
+      </nav>
+      <div class="s-foot">
+        <div style="display:flex;align-items:center;gap:.4rem;margin-bottom:.3rem"><span class="dot dg"></span><span class="s-user" id="su">revendeur</span></div>
+        <div class="muted sm mono" id="ltime"></div>
+        <div id="expinfo" style="margin-top:.35rem;font-size:.72rem;color:var(--yellow)"></div>
+        <div style="margin-top:.65rem"><button class="btn btn-r btn-sm" onclick="logout()" style="width:100%;justify-content:center">⊗ Déconnexion</button></div>
+      </div>
+    </aside>
+
+    <main class="main">
+      <div class="topbar">
+        <div class="flex aic g1"><button class="mbtn" id="mbtn">☰</button><div class="tb-title" id="ptitle"><span>⬡</span> Dashboard</div></div>
+        <div class="tb-acts">
+          <span class="b bp" id="tu">RESELLER</span>
+          <span class="b by hidden" id="expbadge"></span>
+          <button class="btn btn-p btn-sm" onclick="nav('create')" style="letter-spacing:.04em">＋ Créer Client</button>
+        </div>
+      </div>
+
+      <!-- PAGE DASHBOARD -->
+      <div class="page active" id="page-dash">
+        <div class="ptitle">Dashboard</div>
+        <div class="psub">Vue d'ensemble de votre compte revendeur</div>
+        <div class="sgrid">
+          <div class="scard p"><div class="scard-lbl">Clients Créés</div><div class="scard-val" id="s0">—</div><div class="scard-ico">◎</div></div>
+          <div class="scard c"><div class="scard-lbl">Limite Max</div><div class="scard-val" id="s1">—</div><div class="scard-ico">⬡</div></div>
+          <div class="scard g"><div class="scard-lbl">Places Restantes</div><div class="scard-val" id="s2">—</div><div class="scard-ico">+</div></div>
+          <div class="scard y"><div class="scard-lbl">Data Totale</div><div class="scard-val" id="s3">—</div><div class="scard-ico">⇅</div></div>
+        </div>
+        <div class="qbar">
+          <div class="qrow"><span class="qk">Quota utilisateurs</span><span class="qv" id="qv">—</span></div>
+          <div class="prg" style="height:8px"><div class="prg-b" id="qb" style="width:0%"></div></div>
+        </div>
+        <div class="qbar" id="data-quota-bar">
+          <div style="color:var(--muted);font-size:.78rem">Chargement quota data...</div>
+        </div>
+        <div id="tunnel-info" style="margin-top:.5rem;padding:.5rem .75rem;background:rgba(177,108,255,.06);border-radius:6px;border:1px solid rgba(177,108,255,.12);display:none"></div>
+        <div class="card">
+          <div class="ch"><div class="ct">◎ Mes Clients Récents</div><button class="btn btn-p btn-sm" onclick="nav('clients');loadClients()">Voir tout</button></div>
+          <div class="cb" style="padding:0"><div class="tw"><table>
+            <thead><tr><th>Username</th><th>Tunnel</th><th>Data</th><th>Expire</th><th>Statut</th></tr></thead>
+            <tbody id="dc"><tr><td colspan="5" style="text-align:center;padding:2rem;color:var(--muted)">Chargement...</td></tr></tbody>
+          </table></div></div>
+        </div>
+      </div>
+
+      <!-- PAGE CRÉER CLIENT -->
+      <div class="page" id="page-create">
+        <div class="ptitle">Créer un Client</div>
+        <div class="psub">Ajouter un utilisateur tunnel dans votre quota</div>
+        <div class="card" style="max-width:700px">
+          <div class="ch"><div class="ct">＋ Nouveau Client Tunnel</div><span class="b bp">RESELLER</span></div>
+          <div class="cb">
+            <div class="ssep">1 — Type de tunnel</div>
+            <div class="tgrid">
+              <div class="tc2 xray" data-t="vless" onclick="selT(this,'vless')"><div class="tci">⬡</div><div class="tlb">VLESS</div><div class="tsb">Xray</div></div>
+              <div class="tc2 xray" data-t="vmess" onclick="selT(this,'vmess')"><div class="tci">⬡</div><div class="tlb">VMESS</div><div class="tsb">Xray</div></div>
+              <div class="tc2 xray" data-t="trojan" onclick="selT(this,'trojan')"><div class="tci">⬡</div><div class="tlb">TROJAN</div><div class="tsb">Xray</div></div>
+              <div class="tc2 ssh" data-t="ssh-multi" onclick="selT(this,'ssh-multi')"><div class="tci">⌘</div><div class="tlb">SSH MULTIPLE</div><div class="tsb">WS · SSL · SlowDNS · UDP</div></div>
+              <div class="tc2 udp" data-t="udp-zivpn" onclick="selT(this,'udp-zivpn')"><div class="tci">⬢</div><div class="tlb">UDP ZIVPN</div><div class="tsb">Custom</div></div>
+              <div class="tc2 udp" data-t="udp-hysteria" onclick="selT(this,'udp-hysteria')"><div class="tci">⬢</div><div class="tlb">HYSTERIA</div><div class="tsb">UDP</div></div>
+              <div class="tc2" data-t="v2ray-fastdns" onclick="selT(this,'v2ray-fastdns')"><div class="tci">◈</div><div class="tlb">V2Ray FastDNS</div><div class="tsb">FastDNS</div></div>
+            </div>
+            <div id="tsel" style="margin-bottom:.875rem;display:none"><span class="muted sm">Sélectionné : </span><span id="tsv" class="b bp" style="font-size:.8rem"></span></div>
+            <div id="uuid-info" style="display:none;margin:.25rem 0 .75rem;padding:.5rem .75rem;background:rgba(0,200,255,.06);border-radius:6px;border-left:3px solid var(--cyan);font-size:.78rem;color:var(--muted)">
+              ℹ️ <strong>UUID généré automatiquement</strong> — Aucun mot de passe requis pour ce type de tunnel. L'UUID sera affiché après la création.
+            </div>
+            <div class="ssep">2 — Informations</div>
+            <div class="fgrid">
+              <div class="fg"><label class="fl">Username *</label><input class="fc" id="cu" placeholder="ex: client_abc"></div>
+              <div id="pass-row" class="fg"><label class="fl">Mot de passe <span class="muted">(auto si vide)</span> <span id="pass-hint" style="font-size:.7rem;color:var(--cyan);font-weight:400"></span></label><div class="flex g1"><input class="fc" id="cp" placeholder="(auto-généré)" style="flex:1"><button class="btn btn-gh btn-sm" onclick="genP()" title="Générer">⟳</button></div></div>
+              <div class="fg"><label class="fl">Expiration *</label><input class="fc" type="datetime-local" id="ce"></div>
+              <div class="fg"><label class="fl">Quota Data (Go) <span class="muted">(0=illimité)</span></label><input class="fc" type="number" id="cdl" min="0" step="0.5" value="0" placeholder="0 = illimité"></div>
+              <div class="fg" style="grid-column:1/-1"><label class="fl">Note <span class="muted">(optionnel)</span></label><input class="fc" id="cn" placeholder="Commentaire..."></div>
+            </div>
+            <div class="flex g2 mt1" style="margin-top:1.25rem;flex-wrap:wrap">
+              <button class="btn btn-p" id="csub" onclick="createC()" style="padding:.6rem 1.4rem"><span id="csubl">⬡ Créer le Client</span></button>
+              <button class="btn btn-gh" onclick="resetF()">✕ Réinitialiser</button>
+            </div>
+          </div>
+        </div>
+        <div class="rescard hidden" id="cres">
+          <div class="rh"><div class="rt">✓ Client créé avec succès</div><button class="cpbtn" onclick="document.getElementById('cres').classList.add('hidden')">✕</button></div>
+          <div class="rbody" id="cresbody"></div>
+        </div>
+      </div>
+
+      <!-- PAGE MES CLIENTS -->
+      <div class="page" id="page-clients">
+        <div class="ptitle">Mes Clients</div>
+        <div class="psub">Gérez vos utilisateurs tunnel</div>
+        <div class="card">
+          <div class="ch">
+            <div class="sbox"><input type="text" id="csrch" placeholder="Rechercher..." oninput="filterC()"></div>
+            <button class="btn btn-p btn-sm" onclick="nav('create')">＋ Créer</button>
+          </div>
+          <div class="cb" style="padding:0"><div class="tw"><table>
+            <thead><tr><th>#</th><th>Username</th><th>Password</th><th>UUID</th><th>Tunnel</th><th>↑ Upload</th><th>↓ Download</th><th>Quota Data</th><th>Expire</th><th>Statut</th><th>Actions</th></tr></thead>
+            <tbody id="ctbl"><tr><td colspan="11" style="text-align:center;padding:3rem;color:var(--muted)">Chargement...</td></tr></tbody>
+          </table></div></div>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<!-- MODAL EDIT CLIENT -->
+<div class="mo" id="mec">
+  <div class="modal" style="max-width:600px">
+    <div class="mh"><div class="mt">✎ Modifier Client / Tunnel</div><button class="btn btn-gh btn-ic" onclick="closeM('mec')">✕</button></div>
+    <div class="mb">
+      <input type="hidden" id="ecid">
+      <div style="background:rgba(177,108,255,.07);border:1px solid rgba(177,108,255,.2);border-radius:6px;padding:.55rem .9rem;margin-bottom:.8rem;font-size:.74rem;color:var(--dim)">
+        ⚡ Modifier username / mot de passe / UUID recréera automatiquement le tunnel VPN.
+      </div>
+      <div class="fgrid">
+        <div class="fg"><label class="fl">Username</label><input class="fc" id="ecu" placeholder="(inchangé si vide)"></div>
+        <div class="fg"><label class="fl">Mot de passe</label><div class="flex g1"><input class="fc" id="ecpw" type="password" placeholder="(inchangé si vide)" style="flex:1"><button class="btn btn-gh btn-sm" onclick="togglePw('ecpw',this)" type="button" tabindex="-1" style="font-size:1rem;line-height:1">👁</button></div></div>
+        <div class="fg" style="grid-column:1/-1"><label class="fl">UUID <small class="muted">(Xray/V2Ray — vide = inchangé)</small></label>
+          <div style="display:flex;gap:.4rem">
+            <input class="fc" id="ecuuid" placeholder="(inchangé si vide)" style="font-family:var(--mono);font-size:.74rem;flex:1">
+            <button class="btn btn-gh" onclick="document.getElementById('ecuuid').value=genUUIDv4()" title="Générer nouveau UUID" style="white-space:nowrap;padding:0 .7rem">⟳ UUID</button>
+          </div>
+        </div>
+        <div class="fg"><label class="fl">Tunnel (type)</label><input class="fc" id="ect" disabled style="opacity:.5"></div>
+        <div class="fg"><label class="fl">Expire le <small class="muted">(jours / heures / min)</small></label><input class="fc" type="datetime-local" id="ecx"></div>
+        <div class="fg"><label class="fl">Quota Data (Go) <span class="muted">(0=illimité)</span></label><input class="fc" type="number" id="ecdl" min="0" step="0.5" placeholder="0 = illimité"></div>
+        <div class="fg"><label class="fl">Statut</label><select class="fc" id="eca"><option value="1">Actif</option><option value="0">Désactivé</option></select></div>
+        <div class="fg" style="grid-column:1/-1"><label class="fl">Note</label><input class="fc" id="ecn"></div>
+      </div>
+    </div>
+    <div class="mf"><button class="btn btn-gh" onclick="closeM('mec')">Annuler</button><button class="btn btn-p" onclick="saveC()">Enregistrer</button></div>
+  </div>
+</div>
+
+<div class="tc" id="toastC"></div>
+
+<script nonce="__NONCE__">
+function esc(s){const d=document.createElement('div');d.appendChild(document.createTextNode(s??''));return d.innerHTML;}
+const API = {
+  t: localStorage.getItem('kt'),
+  h() { return {'Content-Type':'application/json',Authorization:`Bearer ${this.t}`}; },
+  async req(m,u,d){const o={method:m,headers:this.h()};if(d)o.body=JSON.stringify(d);const r=await fetch(u,o);const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.error||`HTTP ${r.status}`);return j;},
+  get:u=>API.req('GET',u), post:(u,d)=>API.req('POST',u,d), put:(u,d)=>API.req('PUT',u,d), del:u=>API.req('DELETE',u),
+};
+const fmtB=(b,d=2)=>{if(!b||b==0)return'0 B';const k=1024,s=['B','KB','MB','GB','TB'],i=Math.floor(Math.log(b)/Math.log(k));return(b/Math.pow(k,i)).toFixed(d)+' '+s[i];};
+const fmtD=d=>d?new Date(d).toLocaleDateString('fr-FR'):'-';
+const fmtDT=d=>d?new Date(d).toLocaleDateString('fr-FR')+' '+new Date(d).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}):'-';
+const isExp=d=>new Date(d)<new Date();
+const dLeft=d=>Math.ceil((new Date(d)-new Date())/(1000*60*60*24));
+const toDay=()=>new Date().toISOString().split('T')[0];
+const dInp=d=>{
+  if(!d)return '';
+  const dt=new Date(d), p=n=>String(n).padStart(2,'0');
+  return dt.getFullYear()+'-'+p(dt.getMonth()+1)+'-'+p(dt.getDate())+'T'+p(dt.getHours())+':'+p(dt.getMinutes());
+};
+const fmtDLeft=d=>{
+  if(!d)return '';
+  const ms=new Date(d)-new Date();
+  if(ms<=0)return '<span class="b br">EXPIRÉ</span>';
+  const j=Math.floor(ms/86400000),h=Math.floor((ms%86400000)/3600000),m=Math.floor((ms%3600000)/60000);
+  if(j>0)return j+'j '+h+'h '+m+'m';
+  if(h>0)return h+'h '+m+'m';
+  return m+'m';
+};
+const TC={vless:'bc',vmess:'bp',trojan:'by','ssh-multi':'bg','ssh-ws':'bg','ssh-slowdns':'bg','ssh-ssl':'bg','ssh-udp':'bg','udp-zivpn':'br','udp-hysteria':'br','v2ray-fastdns':'bp'};
+const tbadge=t=>`<span class="b ${TC[t]||'bc'}">${t}</span>`;
+const Toast={show(msg,type='i',dur=3500){const ic={s:'✓',e:'✗',i:'ℹ'};const t=document.createElement('div');t.className=`toast ${type}`;t.innerHTML=`<span>${ic[type]}</span>${esc(msg)}`;document.getElementById('toastC').appendChild(t);setTimeout(()=>t.remove(),dur);},s:m=>Toast.show(m,'s'),e:m=>Toast.show(m,'e'),i:m=>Toast.show(m,'i')};
+const openM=id=>document.getElementById(id)?.classList.add('open');
+const closeM=id=>document.getElementById(id)?.classList.remove('open');
+
+function nav(id){
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.nav').forEach(n=>n.classList.remove('active'));
+  document.getElementById('page-'+id)?.classList.add('active');
+  document.querySelector(`[data-p="${id}"]`)?.classList.add('active');
+  const t={dash:'Dashboard',create:'Créer un Client',clients:'Mes Clients'};
+  document.getElementById('ptitle').innerHTML=`<span>⬡</span> ${t[id]||id}`;
+  document.getElementById('sidebar')?.classList.remove('open');
+  if (id === 'create') filterAllowedTunnels(allowedTunnels);
+}
+
+function logout(){localStorage.clear();location.href='/';}
+
+async function doLogin(){
+  const u=document.getElementById('lu').value.trim();
+  const p=document.getElementById('lp').value;
+  const err=document.getElementById('lerr');err.style.display='none';
+  if(!u||!p){err.textContent='Remplissez tous les champs.';err.style.display='block';return;}
+  const btn=document.getElementById('lbtn');btn.innerHTML='<span class="spin"></span>';
+  try{
+    const d=await API.post('/api/auth/reseller/login',{username:u,password:p});
+    localStorage.setItem('kt',d.token);localStorage.setItem('kr','reseller');localStorage.setItem('ku',d.username);
+    API.t=d.token;initPanel(d.username);
+  }catch(e){err.textContent=e.message;err.style.display='block';}
+  finally{btn.innerHTML='<span>SE CONNECTER</span>';}
+}
+document.addEventListener('keypress',e=>{if(e.key==='Enter'&&!document.getElementById('LS').classList.contains('hidden'))doLogin();});
+
+function initPanel(uname){
+  document.getElementById('LS').classList.add('hidden');
+  document.getElementById('PS').classList.remove('hidden');
+  document.getElementById('su').textContent=uname||'revendeur';
+  document.getElementById('tu').textContent=(uname||'RESELLER').toUpperCase();
+  document.getElementById('ce').setAttribute('min',toDay());
+  setInterval(()=>{document.getElementById('ltime').textContent=new Date().toLocaleTimeString('fr-FR');},1000);
+  loadDash();
+}
+
+document.getElementById('mbtn')?.addEventListener('click',()=>document.getElementById('sidebar').classList.toggle('open'));
+document.addEventListener('click',e=>{const s=document.getElementById('sidebar');if(s&&!s.contains(e.target)&&e.target.id!=='mbtn')s.classList.remove('open');});
+
+// Vérification du token au chargement — évite le blocage sur token expiré
+(async function checkAuth() {
+  const token = localStorage.getItem('kt');
+  const role  = localStorage.getItem('kr');
+  const uname = localStorage.getItem('ku');
+  if (!token || role !== 'reseller') return;
+  API.t = token;
+  try {
+    const r = await fetch('/api/reseller/me', {
+      headers: { 'Authorization': 'Bearer ' + token }
+    });
+    if (r.status === 401 || r.status === 403) {
+      localStorage.clear();
+      return;
+    }
+    initPanel(uname);
+  } catch(e) {
+    localStorage.clear();
+  }
+})();
+
+// DASHBOARD
+async function loadDash(){
+  try{
+    const me=await API.get('/api/reseller/me');
+    const rem=me.max_users-me.used_users;
+    const pct=me.max_users>0?Math.min(100,(me.used_users/me.max_users)*100):0;
+    document.getElementById('s0').textContent=me.used_users;
+    document.getElementById('s1').textContent=me.max_users;
+    document.getElementById('s2').textContent=rem;
+    const totalBytes=Number(me.total_bytes||0);
+    document.getElementById('s3').textContent=fmtB(totalBytes);
+    document.getElementById('qv').textContent=`${me.used_users} / ${me.max_users}`;
+    document.getElementById('qb').style.width=pct+'%';
+    // Quota data revendeur
+    const dataEl=document.getElementById('data-quota-bar');
+    if(dataEl){
+      const usedGb=totalBytes/(1024**3);
+      if(me.data_limit_gb>0){
+        const dpct=Math.min(100,(usedGb/me.data_limit_gb)*100).toFixed(0);
+        const cls=dpct>=90?'crit':dpct>=70?'warn':'';
+        dataEl.innerHTML=`<div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="color:var(--muted);font-size:.78rem">Data consommée</span><span style="font-family:var(--mono);font-size:.78rem;color:var(--acc)">${usedGb.toFixed(2)} / ${me.data_limit_gb} GB</span></div><div class="prg" style="height:8px"><div class="prg-b ${cls}" style="width:${dpct}%"></div></div><div style="text-align:right;font-size:.7rem;color:var(--muted);margin-top:2px">${dpct}% utilisé</div>`;
+      } else {
+        dataEl.innerHTML=`<div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="color:var(--muted);font-size:.78rem">Data consommée</span><span style="font-family:var(--mono);font-size:.78rem;color:var(--acc)">${usedGb.toFixed(2)} GB <span style="color:var(--cyan)">∞ illimité</span></span></div><div class="prg" style="height:8px"><div class="prg-b" style="width:${Math.min(100,usedGb*10)}%"></div></div>`;
+      }
+    }
+    const dy=dLeft(me.expires_at);
+    const badge=document.getElementById('expbadge');
+    if(dy<=7){badge.textContent=dy<=0?'EXPIRÉ':`${dy}j restants`;badge.classList.remove('hidden');}
+    document.getElementById('expinfo').textContent=dy<=0?'⚠ Compte expiré':dy<=7?`⚠ Expire dans ${dy} jours`:'';
+    // Parser allowed_tunnels en premier
+    if (me.allowed_tunnels && typeof me.allowed_tunnels === 'string') {
+      try { me.allowed_tunnels = JSON.parse(me.allowed_tunnels); } catch(e) { me.allowed_tunnels = null; }
+    }
+    if (!Array.isArray(me.allowed_tunnels) || me.allowed_tunnels.length === 0) { me.allowed_tunnels = null; }
+    allowedTunnels = me.allowed_tunnels;
+
+    // Afficher dans le dashboard
+    const tunnelInfoEl = document.getElementById('tunnel-info');
+    if (tunnelInfoEl) {
+      if (allowedTunnels && allowedTunnels.length) {
+        tunnelInfoEl.innerHTML = '<span style="font-size:.72rem;color:var(--muted)">Tunnels : </span>' +
+          allowedTunnels.map(t => '<span class="b" style="background:rgba(177,108,255,.15);color:var(--acc);font-size:.68rem;padding:.1rem .35rem;border-radius:3px;margin:.1rem">' + esc(t) + '</span>').join(' ');
+      } else {
+        tunnelInfoEl.innerHTML = '<span style="font-size:.72rem;color:var(--muted)">Tunnels : </span><span style="font-size:.72rem;color:var(--acc)">Tous ✓</span>';
+      }
+      tunnelInfoEl.style.display = '';
+    }
+    filterAllowedTunnels(allowedTunnels);
+    const clients=await API.get('/api/reseller/clients');
+    allClients=clients;
+    document.getElementById('dc').innerHTML=clients.slice(0,5).map(c=>`<tr><td class="nm">${esc(c.username)}</td><td>${esc(tbadge(c.tunnel_type))}</td><td>${fmtB(parseInt(c.total_upload||0)+parseInt(c.total_download||0))}</td><td>${esc(fmtDT(c.expires_at))} <span class="muted sm">${esc(fmtDLeft(c.expires_at))}</span>${isExp(c.expires_at)?'<span class="b br" style="margin-left:.3rem">EXP</span>':''}</td><td>${c.is_active&&!isExp(c.expires_at)?'<span class="b bg">ACTIF</span>':c.quota_blocked?'<span class="b br">🚫 QUOTA</span>':'<span class="b br">OFF</span>'}</td></tr>`).join('')||'<tr><td colspan="5" style="text-align:center;padding:1.5rem;color:var(--muted)">Aucun client créé</td></tr>';
+  }catch(e){Toast.e(e.message);}
+}
+
+
+// Filtrer les cartes tunnel selon les droits du revendeur
+function filterAllowedTunnels(allowed) {
+  const cards = document.querySelectorAll('.tc2[data-t]');
+  if (!cards.length) return;
+
+  // Parse si string
+  if (allowed && typeof allowed === 'string') {
+    try { allowed = JSON.parse(allowed); } catch { allowed = null; }
+  }
+
+  // null ou vide = tous autorisés
+  if (!allowed || !Array.isArray(allowed) || allowed.length === 0) {
+    cards.forEach(c => { c.style.display = ''; });
+    return;
+  }
+
+  // ssh-multi dans allowed couvre toutes les variantes SSH
+  const SSH_VARIANTS = ['ssh-multi','ssh-ws','ssh-slowdns','ssh-ssl','ssh-udp'];
+  const sshAllowed = allowed.includes('ssh-multi');
+
+  cards.forEach(c => {
+    const t = c.getAttribute('data-t');
+    const isSSH = SSH_VARIANTS.includes(t);
+    const ok = allowed.includes(t) || (isSSH && sshAllowed);
+    c.style.display = ok ? '' : 'none';
+  });
+
+  // Si le tunnel sélectionné n'est plus autorisé → reset
+  if (selTunnel) {
+    const isSSH = SSH_VARIANTS.includes(selTunnel);
+    if (!allowed.includes(selTunnel) && !(isSSH && sshAllowed)) {
+      resetF();
+    }
+  }
+}
+
+// Tunnels autorisés (null = tous)
+let allowedTunnels = null;
+
+// TUNNEL SELECTOR
+let selTunnel='';
+
+function selT(el, t) {
+  document.querySelectorAll('.tc2').forEach(c=>c.classList.remove('sel'));
+  el.classList.add('sel'); selTunnel=t;
+  document.getElementById('tsv').textContent=t.toUpperCase();
+  document.getElementById('tsel').style.display='block';
+  const uuidInfo = document.getElementById('uuid-info');
+  const passRow  = document.getElementById('pass-row');
+  const passHint = document.getElementById('pass-hint');
+  const xrayTypes  = ['vmess','vless','trojan'];
+  const v2rayTypes = ['v2ray-fastdns'];
+  const passTypes  = ['ssh-multi','ssh-ws','ssh-ssl','ssh-slowdns','ssh-udp','udp-zivpn','udp-hysteria'];
+  if (xrayTypes.includes(t) || v2rayTypes.includes(t)) {
+    if(uuidInfo) uuidInfo.style.display='block';
+    if(passRow)  passRow.style.display='none';
+    if(passHint) passHint.textContent = v2rayTypes.includes(t) ? 'UUID auto (VLESS TCP port 5401)' : 'UUID généré automatiquement';
+  } else {
+    if(uuidInfo) uuidInfo.style.display='none';
+    if(passRow)  passRow.style.display='flex';
+    if(passHint) passHint.textContent = t.startsWith('udp') ? 'Password UDP (users.list)' : 'Mot de passe SSH Linux';
+  }
+}
+
+function genP(){const c='abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789@#!';let p='';for(let i=0;i<12;i++)p+=c[Math.floor(Math.random()*c.length)];document.getElementById('cp').value=p;}
+
+function togglePw(id,btn){const inp=document.getElementById(id);if(inp.type==='password'){inp.type='text';btn.textContent='🙈'}else{inp.type='password';btn.textContent='👁'}}
+
+function resetF(){
+  selTunnel=''; document.querySelectorAll('.tc2').forEach(c=>c.classList.remove('sel'));
+  document.getElementById('tsel').style.display='none';
+  const ui=document.getElementById('uuid-info'); if(ui) ui.style.display='none';
+  const pr=document.getElementById('pass-row');  if(pr) pr.style.display='flex';
+  ['cu','cp','ce','cn'].forEach(i=>document.getElementById(i).value='');
+  document.getElementById('cres').classList.add('hidden');
+}
+
+// ─── Génère lien vmess base64 ───────────────────────────────────
+function b64(obj){ return btoa(unescape(encodeURIComponent(JSON.stringify(obj)))); }
+function buildVmessLink(name, domain, port, uuid, net, path_, tls){
+  return 'vmess://'+b64({v:'2',ps:name,add:domain,port:String(port),id:uuid,aid:0,net,type:'none',host:domain,path:path_,tls,sni:tls==='tls'?domain:''});
+}
+
+// ─── Rendu du message selon le type de tunnel ──────────────────
+function renderTunnelResult(res) {
+  const V  = res.vpsInfo || {};
+  const TR = res.tunnelResult || {};
+  const CI = TR.config_info || {};
+  const domain     = CI.domain     || V.domain        || '—';
+  const xrayDomain = V.xray_domain || domain;
+  const v2Domain   = V.v2ray_domain|| domain;
+  const hostIp     = V.host_ip     || '—';
+  const slowKey    = V.slowdns_key || CI.slowdns_key  || '—';
+  const slowNs     = V.slowdns_ns  || CI.slowdns_ns   || '—';
+  const u   = res.username;
+  const pw  = res.password;
+  const uuid= res.uuid;
+  const exp = (res.expires_at||'').split('T')[0];
+  const expH = res.expires_at
+    ? new Date(res.expires_at).toLocaleDateString('fr-FR')+' '
+      +new Date(res.expires_at).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})
+    : '—';
+  const t   = res.tunnel_type;
+  const ok  = TR.ok !== false;
+  const dlGb = res.data_limit_gb || 0;
+  const quotaLine = dlGb > 0
+    ? `<div class="tr-row"><span class="tr-k">📊 Quota Data</span><span class="tr-v" style="color:var(--cyan)">${dlGb} Go</span></div>`
+    : `<div class="tr-row"><span class="tr-k">📊 Quota Data</span><span class="tr-v muted">Illimité ∞</span></div>`;
+  const statusLine = ok
+    ? `<div class="tr-status ok">✅ Injecté dans la configuration système</div>`
+    : `<div class="tr-status warn">⚠️ Vérifiez les logs — service peut-être arrêté</div>`;
+
+  // ── UDP ZIVPN ──────────────────────────────────────────────────
+  if (t === 'udp-zivpn') {
+    const port = CI.port || '5667';
+    const obfs = CI.obfs || 'zivpn';
+    return `<div class="tr-block udp">
+      <div class="tr-title">✅ 𝗨𝗧𝗜𝗟𝗜𝗦𝗔𝗧𝗘𝗨𝗥 𝗖𝗥𝗘𝗘</div>
+      <div class="tr-sep"></div>
+      <div class="tr-row"><span class="tr-k">🌐 Domaine</span><span class="tr-v">${esc(domain)}</span><button class="cpbtn" onclick="cp('${esc(domain)}')">📋</button></div>
+      <div class="tr-row"><span class="tr-k">🎭 Obfs</span><span class="tr-v">${esc(obfs)}</span></div>
+      <div class="tr-row"><span class="tr-k">👤 Username</span><span class="tr-v hi">${esc(u)}</span><button class="cpbtn" onclick="cp('${esc(u)}')">📋</button></div>
+      <div class="tr-row"><span class="tr-k">🔐 Password</span><span class="tr-v pw">${esc(pw)}</span><button class="cpbtn" onclick="cp('${esc(pw)}')">📋</button></div>
+      <div class="tr-row"><span class="tr-k">📅 Expire</span><span class="tr-v">${esc(expH)}</span></div>
+      ${quotaLine}
+      <div class="tr-row"><span class="tr-k">🔌 Port</span><span class="tr-v">${esc(port)}</span></div>
+      <div class="tr-sep"></div>
+      ${statusLine}
+    </div>`;
+  }
+
+  // ── UDP HYSTERIA ───────────────────────────────────────────────
+  if (t === 'udp-hysteria') {
+    const portRange = CI.port_range || `${CI.port||'20000'}-50000`;
+    const obfs      = CI.obfs || 'hysteria';
+    return `<div class="tr-block udp">
+      <div class="tr-title">✅ 𝗨𝗧𝗜𝗟𝗜𝗦𝗔𝗧𝗘𝗨𝗥 𝗖𝗥𝗘𝗘</div>
+      <div class="tr-sep"></div>
+      <div class="tr-row"><span class="tr-k">🌐 Domaine</span><span class="tr-v">${esc(domain)}</span><button class="cpbtn" onclick="cp('${esc(domain)}')">📋</button></div>
+      <div class="tr-row"><span class="tr-k">🎭 Obfs</span><span class="tr-v">${esc(obfs)}</span></div>
+      <div class="tr-row"><span class="tr-k">👤 Username</span><span class="tr-v hi">${esc(u)}</span><button class="cpbtn" onclick="cp('${esc(u)}')">📋</button></div>
+      <div class="tr-row"><span class="tr-k">🔐 Password</span><span class="tr-v pw">${esc(pw)}</span><button class="cpbtn" onclick="cp('${esc(pw)}')">📋</button></div>
+      <div class="tr-row"><span class="tr-k">📅 Expire</span><span class="tr-v">${esc(expH)}</span></div>
+      ${quotaLine}
+      <div class="tr-row"><span class="tr-k">🔌 Port</span><span class="tr-v">${esc(portRange)}</span></div>
+      <div class="tr-sep"></div>
+      ${statusLine}
+    </div>`;
+  }
+
+  // ── XRAY : VMESS / VLESS / TROJAN ─────────────────────────────
+  if (['vmess','vless','trojan'].includes(t)) {
+    const proto    = t.toUpperCase();
+    const portTls  = 8443, portNtls = 8880;
+    const pathMap  = {vmess:'/vmess', vless:'/vless', trojan:'/trojan'};
+    const grpcMap  = {vmess:'vmess-grpc', vless:'vless-grpc', trojan:'trojan-grpc'};
+    const wsPath   = pathMap[t] || `/${t}`;
+    const grpcName = grpcMap[t] || `${t}-grpc`;
+    const xhttpPath = t === 'trojan' ? '/trojan-xhttp' : (t === 'vless' ? '/vless-xhttp' : '');
+    const hupPath   = t === 'vless' ? '/vless-hupgrade' : '';
+    let linkTls='', linkNtls='', linkGrpc='';
+    let linkTcpTls='', linkTcpNtls='', linkXhttp='', linkHup='';
+    if (t === 'vmess') {
+      linkTls  = buildVmessLink(u, xrayDomain, portTls,  uuid, 'ws',   wsPath, 'tls');
+      linkNtls = buildVmessLink(u, xrayDomain, portNtls, uuid, 'ws',   wsPath, 'none');
+      linkGrpc = buildVmessLink(u, xrayDomain, portTls,  uuid, 'grpc', grpcName, 'tls');
+    } else if (t === 'trojan') {
+      const pw = uuid;
+      linkTls  = `${t}://${pw}@${xrayDomain}:${portTls}?security=tls&type=ws&path=${wsPath}&host=${xrayDomain}&sni=${xrayDomain}#${u}`;
+      linkNtls = `${t}://${pw}@${xrayDomain}:${portNtls}?security=none&type=ws&path=${wsPath}&host=${xrayDomain}#${u}`;
+      linkGrpc = `${t}://${pw}@${xrayDomain}:${portTls}?mode=grpc&security=tls&serviceName=${grpcName}#${u}`;
+      linkTcpTls = `${t}://${pw}@${xrayDomain}:${portTls}?security=tls&type=tcp&headerType=none&sni=${xrayDomain}#${u}-TCP-TLS`;
+      linkTcpNtls = `${t}://${pw}@${xrayDomain}:${portNtls}?security=none&type=tcp&headerType=none#${u}-TCP`;
+      linkXhttp = `${t}://${pw}@${xrayDomain}:${portTls}?security=tls&type=xhttp&path=${xhttpPath}&host=${xrayDomain}&sni=${xrayDomain}#${u}-XHTTP`;
+    } else {
+      linkTls  = `${t}://${uuid}@${xrayDomain}:${portTls}?security=tls&type=ws&path=${wsPath}&host=${xrayDomain}&sni=${xrayDomain}#${u}`;
+      linkNtls = `${t}://${uuid}@${xrayDomain}:${portNtls}?security=none&type=ws&path=${wsPath}&host=${xrayDomain}#${u}`;
+      linkGrpc = `${t}://${uuid}@${xrayDomain}:${portTls}?mode=grpc&security=tls&serviceName=${grpcName}#${u}`;
+      linkTcpTls = `${t}://${uuid}@${xrayDomain}:${portTls}?security=tls&type=tcp&headerType=none&sni=${xrayDomain}#${u}-TCP-TLS`;
+      linkTcpNtls = `${t}://${uuid}@${xrayDomain}:${portNtls}?security=none&type=tcp&headerType=none#${u}-TCP`;
+      linkXhttp = `${t}://${uuid}@${xrayDomain}:${portTls}?security=tls&encryption=none&type=xhttp&path=${xhttpPath}&host=${xrayDomain}&sni=${xrayDomain}#${u}-XHTTP`;
+      linkHup = `${t}://${uuid}@${xrayDomain}:${portTls}?security=tls&encryption=none&type=httpupgrade&path=${hupPath}&host=${xrayDomain}&sni=${xrayDomain}#${u}-HUP`;
+    }
+    const copyLink = (lbl, link) =>
+      `<div class="tr-link-row"><span class="tr-lk">${lbl}</span><span class="tr-lv">${esc(link)}</span><button class="cpbtn" onclick="cp(\`${esc(link)}\`)">📋</button></div>`;
+    let extraLinks = '';
+    let pathInfoRows = '';
+    if (t === 'trojan') {
+      pathInfoRows = `
+      <div class="tr-row"><span class="tr-k">🚀 XHTTP</span><span class="tr-v">TLS [${esc(xhttpPath)}]</span></div>`;
+      extraLinks = `
+      <div class="tr-subheader">TCP</div>
+      ${copyLink('C TLS TCP', linkTcpTls)}
+      ${copyLink('C Non-TLS TCP', linkTcpNtls)}
+      <div class="tr-subheader">XHTTP</div>
+      ${copyLink('C XHTTP TLS', linkXhttp)}`;
+    } else if (t === 'vless') {
+      pathInfoRows = `
+      <div class="tr-row"><span class="tr-k">🚀 XHTTP</span><span class="tr-v">TLS [${esc(xhttpPath)}]</span></div>
+      <div class="tr-row"><span class="tr-k">⬆ HUP</span><span class="tr-v">TLS [${esc(hupPath)}]</span></div>`;
+      extraLinks = `
+      <div class="tr-subheader">TCP</div>
+      ${copyLink('C TLS TCP', linkTcpTls)}
+      ${copyLink('C Non-TLS TCP', linkTcpNtls)}
+      <div class="tr-subheader">XHTTP</div>
+      ${copyLink('C XHTTP TLS', linkXhttp)}
+      <div class="tr-subheader">HTTPUpgrade</div>
+      ${copyLink('C HUP TLS', linkHup)}`;
+    }
+    return `<div class="tr-block xray">
+      <div class="tr-title">🧩 ${esc(proto)} — ${esc(u)}</div>
+      <div class="tr-sep"></div>
+      <div class="tr-row"><span class="tr-k">📄 Utilisateur</span><span class="tr-v hi">${esc(u)}</span><button class="cpbtn" onclick="cp('${esc(u)}')">📋</button></div>
+      <div class="tr-row"><span class="tr-k">🌐 Domaine</span><span class="tr-v">${esc(xrayDomain||domain)}</span></div>
+      <div class="tr-row"><span class="tr-k">🔌 Ports</span><span class="tr-v">TLS [${portTls}] | Non-TLS [${portNtls}] | gRPC [${portTls}]</span></div>
+      <div class="tr-row"><span class="tr-k">🔑 UUID</span><span class="tr-v uu">${esc(uuid)}</span><button class="cpbtn" onclick="cp('${esc(uuid)}')">📋</button></div>
+      <div class="tr-row"><span class="tr-k">📁 Paths WS</span><span class="tr-v">TLS [${esc(wsPath)}] | Non-TLS [${esc(wsPath)}]</span></div>
+      <div class="tr-row"><span class="tr-k">📡 gRPC</span><span class="tr-v">${esc(grpcName)}</span></div>
+      ${pathInfoRows}
+      <div class="tr-row"><span class="tr-k">📅 Expire</span><span class="tr-v">${esc(expH)}</span></div>
+      <div class="tr-sep"></div>
+      <div class="tr-links-header">●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━●</div>
+      <div class="tr-subheader">WebSocket</div>
+      ${copyLink('C TLS WS', linkTls)}
+      ${copyLink('C Non-TLS WS', linkNtls)}
+      <div class="tr-subheader">gRPC</div>
+      ${copyLink('C gRPC TLS', linkGrpc)}
+      ${extraLinks}
+      <div class="tr-links-header">●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━●</div>
+      ${statusLine}
+    </div>`;
+  }
+
+  // ── SSH MULTIPLE ───────────────────────────────────────────────
+  if (t === 'ssh-multi' || t.startsWith('ssh')) {
+    const hasSlowDns = slowKey && slowKey !== '—';
+    return `<div class="tr-block ssh">
+      <div class="tr-title">✨ 𝙉𝙊𝙐𝙑𝙀𝘼𝙐 𝙐𝙏𝙄𝙇𝙄𝙎𝘼𝙏𝙀𝙐𝙍 𝘾𝙍𝙀𝙀</div>
+      <div class="tr-sep"></div>
+      <div class="tr-row"><span class="tr-k">🌍 Domaine</span><span class="tr-v">${esc(domain)}</span><button class="cpbtn" onclick="cp('${esc(domain)}')">📋</button></div>
+      <div class="tr-row"><span class="tr-k">📌 IP Host</span><span class="tr-v">${esc(hostIp)}</span><button class="cpbtn" onclick="cp('${esc(hostIp)}')">📋</button></div>
+      <div class="tr-row"><span class="tr-k">👤 Utilisateur</span><span class="tr-v hi">${esc(u)}</span><button class="cpbtn" onclick="cp('${esc(u)}')">📋</button></div>
+      <div class="tr-row"><span class="tr-k">🔑 Mot de passe</span><span class="tr-v pw">${esc(pw)}</span><button class="cpbtn" onclick="cp('${esc(pw)}')">📋</button></div>
+      <div class="tr-row"><span class="tr-k">📅 Expire</span><span class="tr-v">${esc(expH)}</span></div>
+      <div class="tr-sep"></div>
+      <div class="tr-section-title">📲 APPS : HTTP Injector, CUSTOM, SOCKSIP, SSC ZIVPN…</div>
+      <div class="tr-link-row"><span class="tr-lk">➡️ SSH WS</span><span class="tr-lv">${esc(domain)}:80@${esc(u)}:${esc(pw)}</span><button class="cpbtn" onclick="cp('${esc(domain)}:80@${esc(u)}:${esc(pw)}')">📋</button></div>
+      <div class="tr-link-row"><span class="tr-lk">➡️ SSL/TLS</span><span class="tr-lv">${esc(domain)}:444@${esc(u)}:${esc(pw)}</span><button class="cpbtn" onclick="cp('${esc(domain)}:444@${esc(u)}:${esc(pw)}')">📋</button></div>
+      <div class="tr-link-row"><span class="tr-lk">➡️ PROXY WS</span><span class="tr-lv">${esc(domain)}:9090@${esc(u)}:${esc(pw)}</span><button class="cpbtn" onclick="cp('${esc(domain)}:9090@${esc(u)}:${esc(pw)}')">📋</button></div>
+      <div class="tr-link-row"><span class="tr-lk">➡️ SSH UDP</span><span class="tr-lv">${esc(domain)}:1-65535@${esc(u)}:${esc(pw)}</span><button class="cpbtn" onclick="cp('${esc(domain)}:1-65535@${esc(u)}:${esc(pw)}')">📋</button></div>
+      <div class="tr-sep"></div>
+      <div class="tr-section-title">📜 PAYLOAD WS</div>
+      <div class="tr-payload">GET / HTTP/1.1[crlf]Host: [host][crlf]Connection: Upgrade[crlf]User-Agent: [ua][crlf]Upgrade: websocket[crlf][crlf]</div>
+      <button class="cpbtn" onclick="cp('GET / HTTP/1.1[crlf]Host: [host][crlf]Connection: Upgrade[crlf]User-Agent: [ua][crlf]Upgrade: websocket[crlf][crlf]')">📋 Copier payload</button>
+      ${hasSlowDns ? `<div class="tr-sep"></div>
+      <div class="tr-section-title">🚀 CONFIG FASTDNS (port 5300)</div>
+      <div class="tr-row"><span class="tr-k">🔐 Pub KEY</span></div>
+      <div class="tr-pubkey">${esc(slowKey)}</div>
+      <button class="cpbtn" onclick="cp('${esc(slowKey)}')">📋 Copier clé</button>
+      <div class="tr-row" style="margin-top:.5rem"><span class="tr-k">🌐 NameServer</span><span class="tr-v">${esc(slowNs)}</span><button class="cpbtn" onclick="cp('${esc(slowNs)}')">📋</button></div>` : ''}
+      <div class="tr-sep"></div>
+      <div class="tr-status ok">✅ 𝘾𝙊𝙈𝙋𝙏𝙀 𝘾𝙍𝙀𝙀 𝘼𝙑𝙀𝘾 𝙎𝙐𝘾𝘾𝙀𝙎</div>
+    </div>`;
+  }
+
+  // ── V2RAY FASTDNS ──────────────────────────────────────────────
+  if (t === 'v2ray-fastdns') {
+    const vDomain   = v2Domain || domain;
+    const vlessLink = `vless://${uuid}@${vDomain}:5401?type=tcp&encryption=none&host=${vDomain}#${u}-VLESS-TCP`;
+    const v2rayKey = V.slowdns_key_v2ray || CI.slowdns_key_v2ray  || '—';
+    const v2rayNs  = V.slowdns_ns_v2ray  || CI.slowdns_ns_v2ray   || '—';
+    const hasSlowDns = (v2rayKey && v2rayKey !== '—') || (v2rayNs && v2rayNs !== '—');
+    return `<div class="tr-block v2ray">
+      <div class="tr-title">🧩 VLESS TCP + FASTDNS</div>
+      <div class="tr-sep"></div>
+      <div class="tr-row"><span class="tr-k">📄 Utilisateur</span><span class="tr-v hi">${esc(u)}</span><button class="cpbtn" onclick="cp('${esc(u)}')">📋</button></div>
+      <div class="tr-row"><span class="tr-k">🌐 Domaine</span><span class="tr-v">${esc(vDomain)}</span><button class="cpbtn" onclick="cp('${esc(vDomain)}')">📋</button></div>
+      <div class="tr-row"><span class="tr-k">🔌 Ports</span><span class="tr-v">FastDNS UDP: 5400 | V2Ray TCP: 5401</span></div>
+      <div class="tr-row"><span class="tr-k">🔑 UUID</span><span class="tr-v uu">${esc(uuid)}</span><button class="cpbtn" onclick="cp('${esc(uuid)}')">📋</button></div>
+      <div class="tr-row"><span class="tr-k">📅 Expire</span><span class="tr-v">${esc(expH)}</span></div>
+      ${quotaLine}
+      ${hasSlowDns ? `<div class="tr-sep"></div>
+      <div class="tr-section-title">━━━━━ CONFIG SLOWDNS PORT 5400 ━━━━━</div>
+      <div class="tr-row"><span class="tr-k">🔐 Clé publique FastDNS</span></div>
+      <div class="tr-pubkey">${esc(v2rayKey)}</div>
+      <button class="cpbtn" onclick="cp('${esc(v2rayKey)}')">📋 Copier clé</button>
+      <div class="tr-row" style="margin-top:.5rem"><span class="tr-k">🌐 NameServer</span><span class="tr-v">${esc(v2rayNs)}</span><button class="cpbtn" onclick="cp('${esc(v2rayNs)}')">📋</button></div>` : ''}
+      <div class="tr-sep"></div>
+      <div class="tr-links-header">●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━●</div>
+      <div class="tr-link-row"><span class="tr-lk">┃ Lien VLESS</span><span class="tr-lv">${esc(vlessLink)}</span><button class="cpbtn" onclick="cp(\`${esc(vlessLink)}\`)">📋</button></div>
+      <div class="tr-links-header">●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━●</div>
+      ${statusLine}
+    </div>`;
+  }
+
+  // ── Fallback générique ─────────────────────────────────────────
+  return `<div class="tr-block">
+    ${domain && domain !== '—' ? `<div class="tr-row"><span class="tr-k">🌐 Domaine</span><span class="tr-v">${esc(domain)}</span><button class="cpbtn" onclick="cp('${esc(domain)}')">📋</button></div>` : ''}
+    <div class="tr-row"><span class="tr-k">Username</span><span class="tr-v hi">${esc(u)}</span><button class="cpbtn" onclick="cp('${esc(u)}')">📋</button></div>
+    <div class="tr-row"><span class="tr-k">Password</span><span class="tr-v pw">${esc(pw)}</span><button class="cpbtn" onclick="cp('${esc(pw)}')">📋</button></div>
+    ${uuid?`<div class="tr-row"><span class="tr-k">UUID</span><span class="tr-v uu">${esc(uuid)}</span><button class="cpbtn" onclick="cp('${esc(uuid)}')">📋</button></div>`:''}
+    <div class="tr-row"><span class="tr-k">Tunnel</span><span class="tr-v">${esc(tbadge(t))}</span></div>
+    <div class="tr-row"><span class="tr-k">Expire</span><span class="tr-v">${esc(expH)}</span></div>
+    ${quotaLine}
+    ${statusLine}
+  </div>`;
+}
+
+async function createC(){
+  const u=document.getElementById('cu').value.trim();
+  const p=document.getElementById('cp').value.trim();
+  const e=document.getElementById('ce').value;
+  const n=document.getElementById('cn').value.trim();
+  const dl=parseFloat(document.getElementById('cdl').value)||0;
+  if(!selTunnel) return Toast.e('Sélectionnez un type de tunnel');
+  if(!u) return Toast.e('Le username est obligatoire');
+  if(!e) return Toast.e("La date d'expiration est obligatoire");
+  const btn=document.getElementById('csub');btn.innerHTML='<span class="spin"></span> Création...';btn.disabled=true;
+  try{
+    const res=await API.post('/api/reseller/clients',{username:u,password:p||undefined,tunnel_type:selTunnel,expires_at:e,note:n||undefined,data_limit_gb:dl});
+    const resEl=document.getElementById('cres');resEl.classList.remove('hidden');
+    document.getElementById('cresbody').innerHTML = renderTunnelResult(res);
+    Toast.s(`Client "${res.username}" créé !`);
+    resEl.scrollIntoView({behavior:'smooth',block:'nearest'});
+    document.getElementById('cu').value='';document.getElementById('cp').value='';document.getElementById('cn').value='';document.getElementById('cdl').value='0';
+    loadDash();
+  }catch(e){Toast.e(e.message);}
+  finally{btn.innerHTML='<span>⬡ Créer le Client</span>';btn.disabled=false;}
+}
+
+function cp(t) {
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(t)
+      .then(() => Toast.s('Copié !'))
+      .catch(() => cpFallback(t));
+    return;
+  }
+  cpFallback(t);
+}
+function cpFallback(t) {
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = t;
+    ta.setAttribute('readonly', '');
+    ta.style.cssText = 'position:fixed;top:-9999px;left:-9999px;opacity:0;pointer-events:none';
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    ta.setSelectionRange(0, ta.value.length);
+    const ok = document.execCommand('copy');
+    document.body.removeChild(ta);
+    if (ok) Toast.s('Copié !');
+    else Toast.e('Copie échouée — sélectionnez et copiez manuellement');
+  } catch(e) {
+    Toast.e('Copie échouée — sélectionnez et copiez manuellement');
+  }
+}
+
+// MES CLIENTS
+let allClients=[];
+async function loadClients(){
+  try{allClients=await API.get('/api/reseller/clients');renderClients(allClients);}catch(e){Toast.e(e.message);}
+}
+function renderClients(data){
+  const tb=document.getElementById('ctbl');
+  if(!data.length){tb.innerHTML='<tr><td colspan="11" style="text-align:center;padding:3rem;color:var(--muted)">Aucun client</td></tr>';return;}
+  tb.innerHTML=data.map(c=>{
+    const ex=isExp(c.expires_at),dy=dLeft(c.expires_at);
+    let st;
+    if(c.quota_blocked) st='<span class="b br" title="Quota data dépassé">🚫 QUOTA</span>';
+    else if(!c.is_active) st='<span class="b br">OFF</span>';
+    else if(ex) st='<span class="b br">EXPIRÉ</span>';
+    else if(dy<=3) st=`<span class="b by">${dy}j</span>`;
+    else st='<span class="b bg">ACTIF</span>';
+    const usedGb=(Number(c.total_upload)+Number(c.total_download))/(1024**3);
+    let quotaHtml;
+    if(c.data_limit_gb>0){
+      const pct=Math.min(100,(usedGb/c.data_limit_gb)*100).toFixed(0);
+      const cls=pct>=90?'crit':pct>=70?'warn':'';
+      quotaHtml=`<div style="font-size:.72rem;white-space:nowrap"><div class="prg" style="width:55px"><div class="prg-b ${cls}" style="width:${pct}%"></div></div><span class="muted">${usedGb.toFixed(1)}/${c.data_limit_gb}GB</span></div>`;
+    } else {
+      quotaHtml=`<span class="muted" style="font-size:.72rem">${usedGb.toFixed(1)}GB <span style="color:var(--acc)">∞</span></span>`;
+    }
+    return `<tr>
+      <td class="muted">${c.id}</td>
+      <td class="nm">${esc(c.username)}</td>
+      <td><code style="color:var(--yellow);font-size:.73rem">${esc(c.password||'—')}</code></td>
+      <td><code style="color:var(--dim);font-size:.7rem" title="${esc(c.uuid||'')}">${c.uuid?esc(c.uuid.substring(0,12))+'…':'—'}</code></td>
+      <td>${esc(tbadge(c.tunnel_type))}</td>
+      <td>${fmtB(c.total_upload)}</td>
+      <td>${fmtB(c.total_download)}</td>
+      <td>${quotaHtml}</td>
+      <td>${esc(fmtDT(c.expires_at))} <span class="muted sm">${esc(fmtDLeft(c.expires_at))}</span></td>
+      <td>${st}</td>
+      <td><div class="actg">
+        <button class="btn btn-p btn-sm btn-ic" onclick="openEC(${c.id},'${esc(c.username)}','${esc(c.tunnel_type)}','${esc(dInp(c.expires_at))}',${c.is_active},'${esc((c.note||'').replace(/'/g,'`'))}',${c.data_limit_gb||0},'${esc(c.uuid||'')}')">✎</button>
+        <button class="btn btn-r btn-sm btn-ic" onclick="delC(${c.id},'${esc(c.username)}')">✕</button>
+      </div></td>
+    </tr>`;
+  }).join('');
+}
+function filterC(){const q=document.getElementById('csrch').value.toLowerCase();renderClients(allClients.filter(c=>c.username.toLowerCase().includes(q)||c.tunnel_type.includes(q)));}
+function genUUIDv4(){
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g,c=>{
+    const r=Math.random()*16|0,v=c==='x'?r:(r&0x3|0x8);return v.toString(16);
+  });
+}
+function openEC(id,u,t,x,a,n,dl,uuid){
+  document.getElementById('ecid').value=id;
+  document.getElementById('ecu').value='';      document.getElementById('ecu').placeholder=u||'(inchangé si vide)';
+  document.getElementById('ecpw').value='';
+  document.getElementById('ecuuid').value='';   document.getElementById('ecuuid').placeholder=uuid||'(inchangé si vide)';
+  document.getElementById('ect').value=t;
+  document.getElementById('ecx').value=x;
+  document.getElementById('eca').value=a;
+  document.getElementById('ecn').value=n||'';
+  document.getElementById('ecdl').value=dl||0;
+  openM('mec');
+}
+async function saveC(){
+  const id=document.getElementById('ecid').value;
+  const d={
+    expires_at:   document.getElementById('ecx').value,
+    is_active:    parseInt(document.getElementById('eca').value),
+    note:         document.getElementById('ecn').value,
+    data_limit_gb:parseFloat(document.getElementById('ecdl').value)||0
+  };
+  const u   =document.getElementById('ecu').value.trim();    if(u)    d.username=u;
+  const pw  =document.getElementById('ecpw').value.trim();   if(pw)   d.password=pw;
+  const uuid=document.getElementById('ecuuid').value.trim(); if(uuid) d.uuid=uuid;
+  try{
+    const r=await API.put(`/api/reseller/clients/${id}`,d);
+    Toast.s(r.tunnelChanged?'✓ Client + tunnel recréé':'✓ Client mis à jour');
+    closeM('mec');
+    loadClients();
+    loadDash();
+  }catch(e){Toast.e(e.message);}
+}
+async function delC(id,u){
+  if(!confirm(`Supprimer "${u}" et révoquer ses accès tunnel ?`))return;
+  try{
+    await API.del(`/api/reseller/clients/${id}`);
+    Toast.s(`"${u}" supprimé`);
+    loadClients();
+    loadDash();
+  }catch(e){Toast.e(e.message);}
+}
+</script>
+</body>
+</html>
