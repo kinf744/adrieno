@@ -130,13 +130,11 @@ uninstall_slowdns() {
   read -rp "Confirmer ? (o/N): " CONFIRM
   [[ "$CONFIRM" =~ ^[oO]$ ]] || { echo "Annulé"; pause; return; }
 
-  # 1) Arrêt et désactivation des 3 services
   systemctl stop slowdns-ns4 slowdns-nv4 2>/dev/null || true
   systemctl disable slowdns-ns4 slowdns-nv4 2>/dev/null || true
   rm -f /etc/systemd/system/slowdns-ns4.service
   rm -f /etc/systemd/system/slowdns-nv4.service
 
-  # Override dnsdist Restart=always
   rm -f /etc/systemd/system/dnsdist.service.d/restart.conf
   rmdir /etc/systemd/system/dnsdist.service.d 2>/dev/null || true
   systemctl stop dnsdist 2>/dev/null || true
@@ -144,34 +142,37 @@ uninstall_slowdns() {
 
   systemctl daemon-reload
 
-  # 2) Kill forcé des processus résiduels
   pkill -15 -f dnstt-server 2>/dev/null || true
   pkill -15 -f slowdns-ns4-start.sh 2>/dev/null || true
   pkill -15 -f slowdns-nv4-start.sh 2>/dev/null || true
   sleep 2
   pkill -9 -f dnstt-server 2>/dev/null || true
 
-  # 3) Suppression des fichiers
   rm -f /usr/local/bin/dnstt-server
   rm -f /usr/local/bin/slowdns-ns4-start.sh
   rm -f /usr/local/bin/slowdns-nv4-start.sh
   rm -f /usr/local/bin/slowdns-update-ip.sh
+  rm -f /usr/local/bin/slowdns-watchdog.sh
   rm -rf /etc/slowdns
   rm -rf /var/log/slowdns
   rm -f /etc/logrotate.d/slowdns
   rm -f /etc/dnsdist/dnsdist.conf
 
-  # 4) Suppression des crons slowdns
+  chattr -i /etc/resolv.conf 2>/dev/null || true
+
+  rm -f /etc/sysctl.d/99-slowdns.conf
+  sysctl --system > /dev/null 2>&1 || true
+
   ( crontab -l 2>/dev/null | grep -v "slowdns" ) | crontab -
 
-  # 5) Firewall — table slowdns uniquement, sans toucher ZIVPN/Hysteria
   nft delete table ip slowdns 2>/dev/null || true
+  nft delete table ip nat 2>/dev/null || true
+  nft delete table ip6 nat 2>/dev/null || true
   nft delete table ip filter 2>/dev/null || true
   nft delete table ip6 filter 2>/dev/null || true
   nft -f /etc/nftables.conf 2>/dev/null || true
   netfilter-persistent save 2>/dev/null || true
 
-  # 6) apt-mark unhold dnsdist
   apt-mark unhold dnsdist 2>/dev/null || true
 
   echo "✅ SlowDNS v3 supprimé SANS toucher ZIVPN/Hysteria"
