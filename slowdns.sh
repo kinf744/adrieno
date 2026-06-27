@@ -177,6 +177,7 @@ Wants=network-online.target
 StartLimitIntervalSec=0
 
 [Service]
+ExecStartPre=/bin/sleep 5
 ExecStart=$start_script
 Restart=always
 RestartSec=5
@@ -311,6 +312,21 @@ nft -f /etc/nftables.conf && ok "nftables OK" || { err "Erreur nftables"; exit 1
 
 info "Durabilité long terme..."
 
+systemctl enable nftables 2>/dev/null && ok "nftables activé au boot" || warn "Impossible d'activer nftables"
+
+chattr -i /etc/resolv.conf 2>/dev/null || true
+printf 'nameserver 1.1.1.1\nnameserver 8.8.8.8\n' > /etc/resolv.conf
+chattr +i /etc/resolv.conf && ok "resolv.conf verrouillé" || warn "chattr non disponible"
+
+cat > /etc/sysctl.d/99-slowdns.conf << 'SYSCTLEOF'
+net.core.rmem_max=16777216
+net.core.wmem_max=16777216
+net.core.rmem_default=1048576
+net.core.wmem_default=1048576
+net.core.netdev_max_backlog=5000
+SYSCTLEOF
+sysctl -p /etc/sysctl.d/99-slowdns.conf > /dev/null 2>&1 && ok "sysctl UDP buffers OK" || warn "sysctl non appliqué"
+
 cat > /etc/logrotate.d/slowdns << 'LOGEOF'
 /var/log/slowdns/*.log {
     daily
@@ -325,7 +341,20 @@ ok "logrotate OK"
 
 apt-mark hold dnsdist 2>/dev/null && ok "dnsdist verrouillé" || warn "Impossible de verrouiller dnsdist"
 
-CRON_JOB="*/15 * * * * systemctl is-active --quiet dnsdist slowdns-ns4 slowdns-nv4 || systemctl restart dnsdist slowdns-ns4 slowdns-nv4 >> /var/log/slowdns/watchdog.log 2>&1"
+WATCHDOG_SCRIPT="/usr/local/bin/slowdns-watchdog.sh"
+cat > "$WATCHDOG_SCRIPT" << WDEOF
+#!/bin/bash
+LOG=/var/log/slowdns/watchdog.log
+ts() { date '+%Y-%m-%d %H:%M:%S'; }
+for svc in dnsdist slowdns-ns4 slowdns-nv4; do
+  systemctl is-active --quiet "\$svc" || { systemctl restart "\$svc"; echo "[\$(ts)] \$svc redémarré" >> "\$LOG"; }
+done
+ss -ulpn | grep -q ":${PORT1} " || { systemctl restart slowdns-ns4; echo "[\$(ts)] slowdns-ns4 port ${PORT1} absent — redémarré" >> "\$LOG"; }
+ss -ulpn | grep -q ":${PORT2} " || { systemctl restart slowdns-nv4; echo "[\$(ts)] slowdns-nv4 port ${PORT2} absent — redémarré" >> "\$LOG"; }
+ss -ulpn | grep -q ":${DNSDIST_PORT} " || { systemctl restart dnsdist; echo "[\$(ts)] dnsdist port ${DNSDIST_PORT} absent — redémarré" >> "\$LOG"; }
+WDEOF
+chmod +x "$WATCHDOG_SCRIPT"
+CRON_JOB="*/15 * * * * $WATCHDOG_SCRIPT"
 ( crontab -l 2>/dev/null | grep -v "slowdns"; echo "$CRON_JOB" ) | crontab -
 ok "Cron watchdog toutes les 15 min"
 
@@ -383,9 +412,10 @@ done
 
 echo ""
 echo -e "  ${C}Ports :${NC}"
-for p in 53 $DNSDIST_PORT $PORT1 $PORT2 5401 22; do
+for p in $DNSDIST_PORT $PORT1 $PORT2 5401 22; do
   ss -tulpn 2>/dev/null | grep -q ":$p " && ok "Port $p OK" || warn "Port $p absent"
 done
+nft list ruleset 2>/dev/null | grep -q "dport 53 redirect" && ok "Port 53 DNAT → $DNSDIST_PORT OK" || warn "Règle DNAT 53 absente"
 
 echo ""
 echo -e "  ${C}Tests DNS :${NC}"
@@ -406,6 +436,8 @@ echo -e "  rm -f /etc/systemd/system/slowdns-*.service"
 echo -e "  rm -f /etc/systemd/system/dnsdist.service.d/restart.conf"
 echo -e "  rm -f $SLOWDNS_BIN /usr/local/bin/slowdns-*"
 echo -e "  rm -f /etc/dnsdist/dnsdist.conf /etc/logrotate.d/slowdns"
+echo -e "  chattr -i /etc/resolv.conf"
+echo -e "  rm -f /etc/sysctl.d/99-slowdns.conf"
 echo -e "  cp $BACKUP_DIR/nftables.conf /etc/nftables.conf && nft -f /etc/nftables.conf"
 echo -e "  systemctl daemon-reload"
 
