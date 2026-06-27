@@ -281,6 +281,7 @@ WantedBy=multi-user.target
 SVCEOF
 
 # ========== NGINX CONFIG ==========
+rm -f /etc/nginx/conf.d/xray.conf /etc/nginx/conf.d/xray-ntls.conf /etc/nginx/conf.d/xray-tls.conf /etc/nginx/conf.d/acme-challenge.conf
 info "Configuration Nginx..."
 
 # NGINX :8881 (NTLS backend, reçoit de HAProxy)
