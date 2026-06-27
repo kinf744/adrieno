@@ -469,7 +469,7 @@ creer_utilisateur() {
     SLOWDNS_DIR="/etc/slowdns"
     [[ -f "$SLOWDNS_DIR/slowdns.env" ]] && source "$SLOWDNS_DIR/slowdns.env"
     local PUB_KEY=${PUB_KEY:-$( [[ -f "$SLOWDNS_DIR/server.pub" ]] && cat "$SLOWDNS_DIR/server.pub" || echo "clé_non_disponible" )}
-    local NAMESERVER=${NS:-$( [[ -f "$SLOWDNS_DIR/ns.conf" ]] && cat "$SLOWDNS_DIR/ns.conf" || echo "NS_non_defini" )}
+    local NAMESERVER=${NS:-$( [[ -f "$SLOWDNS_DIR/nv4/ns.conf" ]] && cat "$SLOWDNS_DIR/ns.conf" || echo "NS_non_defini" )}
 
     clear
     echo -e "${GREEN}============================================"
