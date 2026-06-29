@@ -118,7 +118,7 @@ ok "Sauvegarde → $BACKUP_DIR"
 info "Installation des dépendances..."
 export DEBIAN_FRONTEND=noninteractive
 apt update -qq 2>/dev/null
-apt install -y -qq curl jq dnsdist nftables iptables netfilter-persistent 2>/dev/null
+apt install -y -qq curl jq dnsdist nftables iptables netfilter-persistent iproute2 2>/dev/null
 systemctl stop dnsdist 2>/dev/null || true
 ok "Dépendances OK"
 
@@ -172,15 +172,15 @@ for inst in ns4 nv4; do
   cat > "/etc/systemd/system/slowdns-$inst.service" << SERVICEEOF
 [Unit]
 Description=SlowDNS DNSTT $inst
-After=network-online.target
+After=network-online.target dnsdist.service
 Wants=network-online.target
 StartLimitIntervalSec=0
 
 [Service]
-ExecStartPre=/bin/sleep 5
+ExecStartPre=/bin/bash -c 'until ss -ulpn | grep -q ":${DNSDIST_PORT} "; do sleep 1; done'
 ExecStart=$start_script
 Restart=always
-RestartSec=5
+RestartSec=3
 StartLimitBurst=0
 LimitNOFILE=1048576
 KillMode=process
@@ -200,7 +200,7 @@ mkdir -p /etc/systemd/system/dnsdist.service.d
 cat > /etc/systemd/system/dnsdist.service.d/restart.conf << 'OVERRIDEEOF'
 [Service]
 Restart=always
-RestartSec=5
+RestartSec=3
 StartLimitBurst=0
 StartLimitIntervalSec=0
 OVERRIDEEOF
@@ -221,8 +221,14 @@ setSecurityPollSuffix("")
 setACL({"0.0.0.0/0", "::/0"})
 addLocal("0.0.0.0:$DNSDIST_PORT")
 ${DNSDIST_IPV6_LINE}
+setMaxUDPOutstanding(10240)
+setMaxTCPClientThreads(20)
+setMaxTCPQueuedConnections(1000)
+setRingBuffersSize(10000)
+setMaxUDPPayloadSize(4096)
 newServer({address="127.0.0.1:$PORT1", pool="ns4"})
 newServer({address="127.0.0.1:$PORT2", pool="nv4"})
+setServerPolicy(leastOutstanding)
 addAction(makeRule("$NS4."), PoolAction("ns4"))
 addAction(makeRule("$NV4."), PoolAction("nv4"))
 addAction(AllRule(), RCodeAction(5))
@@ -260,8 +266,8 @@ table ip filter {
 		type filter hook input priority filter; policy accept;
 		iif lo accept
 		ct state established,related accept
-		udp dport 53 accept
-		udp dport ${DNSDIST_PORT} accept
+		udp dport 53 limit rate 5000/second burst 10000 packets accept
+		udp dport ${DNSDIST_PORT} limit rate 5000/second burst 10000 packets accept
 		udp dport 5353 accept
 		udp dport 5354 accept
 		tcp dport 22 accept
@@ -292,8 +298,8 @@ table ip6 filter {
 		type filter hook input priority filter; policy accept;
 		iif lo accept
 		ct state established,related accept
-		udp dport 53 accept
-		udp dport ${DNSDIST_PORT} accept
+		udp dport 53 limit rate 5000/second burst 10000 packets accept
+		udp dport ${DNSDIST_PORT} limit rate 5000/second burst 10000 packets accept
 		udp dport 5353 accept
 		udp dport 5354 accept
 		tcp dport 22 accept
@@ -319,13 +325,32 @@ printf 'nameserver 1.1.1.1\nnameserver 8.8.8.8\n' > /etc/resolv.conf
 chattr +i /etc/resolv.conf && ok "resolv.conf verrouillé" || warn "chattr non disponible"
 
 cat > /etc/sysctl.d/99-slowdns.conf << 'SYSCTLEOF'
-net.core.rmem_max=16777216
-net.core.wmem_max=16777216
-net.core.rmem_default=1048576
-net.core.wmem_default=1048576
-net.core.netdev_max_backlog=5000
+net.core.rmem_max=67108864
+net.core.wmem_max=67108864
+net.core.rmem_default=16777216
+net.core.wmem_default=16777216
+net.core.netdev_max_backlog=50000
+net.core.somaxconn=65535
+net.ipv4.udp_mem=8388608 12582912 16777216
+net.ipv4.udp_rmem_min=16384
+net.ipv4.udp_wmem_min=16384
 SYSCTLEOF
 sysctl -p /etc/sysctl.d/99-slowdns.conf > /dev/null 2>&1 && ok "sysctl UDP buffers OK" || warn "sysctl non appliqué"
+
+NET_IF=$(ip route show default | awk '/default/ {print $5}' | head -1)
+if [[ -n "$NET_IF" ]]; then
+  tc qdisc del dev "$NET_IF" root 2>/dev/null || true
+  tc qdisc add dev "$NET_IF" root handle 1: prio 2>/dev/null && \
+  tc filter add dev "$NET_IF" parent 1:0 protocol ip u32 \
+    match ip protocol 17 0xff \
+    match ip dport 5353 0xffff flowid 1:1 2>/dev/null && \
+  tc filter add dev "$NET_IF" parent 1:0 protocol ip u32 \
+    match ip protocol 17 0xff \
+    match ip dport 5354 0xffff flowid 1:1 2>/dev/null && \
+  ok "QoS UDP prioritaire sur $NET_IF" || warn "QoS non appliqué"
+else
+  warn "Interface réseau non détectée — QoS ignoré"
+fi
 
 cat > /etc/logrotate.d/slowdns << 'LOGEOF'
 /var/log/slowdns/*.log {
@@ -346,17 +371,25 @@ cat > "$WATCHDOG_SCRIPT" << WDEOF
 #!/bin/bash
 LOG=/var/log/slowdns/watchdog.log
 ts() { date '+%Y-%m-%d %H:%M:%S'; }
+
 for svc in dnsdist slowdns-ns4 slowdns-nv4; do
   systemctl is-active --quiet "\$svc" || { systemctl restart "\$svc"; echo "[\$(ts)] \$svc redémarré" >> "\$LOG"; }
 done
+
 ss -ulpn | grep -q ":${PORT1} " || { systemctl restart slowdns-ns4; echo "[\$(ts)] slowdns-ns4 port ${PORT1} absent — redémarré" >> "\$LOG"; }
 ss -ulpn | grep -q ":${PORT2} " || { systemctl restart slowdns-nv4; echo "[\$(ts)] slowdns-nv4 port ${PORT2} absent — redémarré" >> "\$LOG"; }
 ss -ulpn | grep -q ":${DNSDIST_PORT} " || { systemctl restart dnsdist; echo "[\$(ts)] dnsdist port ${DNSDIST_PORT} absent — redémarré" >> "\$LOG"; }
+
+NS4_CONF=\$(cat ${SLOWDNS_DIR}/ns.conf 2>/dev/null)
+NV4_CONF=\$(cat ${SLOWDNS_DIR}/nv4/ns.conf 2>/dev/null)
+dig +short +time=2 +tries=1 "test.\${NS4_CONF}" @127.0.0.1 &>/dev/null || { systemctl restart slowdns-ns4; echo "[\$(ts)] slowdns-ns4 DNS KO — redémarré" >> "\$LOG"; }
+dig +short +time=2 +tries=1 "test.\${NV4_CONF}" @127.0.0.1 &>/dev/null || { systemctl restart slowdns-nv4; echo "[\$(ts)] slowdns-nv4 DNS KO — redémarré" >> "\$LOG"; }
 WDEOF
 chmod +x "$WATCHDOG_SCRIPT"
-CRON_JOB="*/15 * * * * $WATCHDOG_SCRIPT"
-( crontab -l 2>/dev/null | grep -v "slowdns"; echo "$CRON_JOB" ) | crontab -
-ok "Cron watchdog toutes les 15 min"
+
+CRON_JOB="*/3 * * * * $WATCHDOG_SCRIPT"
+( crontab -l 2>/dev/null | grep -v "slowdns-watchdog"; echo "$CRON_JOB" ) | crontab -
+ok "Cron watchdog toutes les 3 min"
 
 if [[ "$MODE" == "auto" ]]; then
   UPDATE_IP_SCRIPT="/usr/local/bin/slowdns-update-ip.sh"
@@ -394,7 +427,7 @@ systemctl daemon-reload
 for svc in dnsdist slowdns-ns4 slowdns-nv4; do
   systemctl enable "$svc" 2>/dev/null || true
   systemctl restart "$svc" 2>/dev/null || true
-  sleep 1
+  sleep 2
   if systemctl is-active --quiet "$svc"; then
     ok "$svc → actif"
   else
