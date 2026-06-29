@@ -17,7 +17,7 @@ CONFIG_FILE="$SLOWDNS_DIR/ns.conf"
 
 DOMAIN="${DOMAIN:-kingom.ggff.net}"
 IP_PUBLIC="${IP_PUBLIC:-$(curl -s ipv4.icanhazip.com || echo "127.0.0.1")}"
-BACKEND1_TARGET="${BACKEND1_TARGET:-127.0.0.1:22}"
+BACKEND1_TARGET="${BACKEND1_TARGET:-127.0.0.1:109}"
 BACKEND2_TARGET="${BACKEND2_TARGET:-127.0.0.1:5401}"
 PORT1="${PORT1:-5353}"
 PORT2="${PORT2:-5354}"
@@ -151,7 +151,7 @@ cat > /usr/local/bin/slowdns-ns4-start.sh << 'STARTEOF'
 #!/bin/bash
 NS=$(cat /etc/slowdns/ns.conf)
 echo "[$(date '+%Y-%m-%d %H:%M:%S')] slowdns-ns4 start NS=$NS" >> /var/log/slowdns/ns4.log
-exec /usr/local/bin/dnstt-server -udp 0.0.0.0:5353 -privkey-file /etc/slowdns/server.key "$NS" 127.0.0.1:22
+exec /usr/local/bin/dnstt-server -udp 0.0.0.0:5353 -privkey-file /etc/slowdns/server.key "$NS" 127.0.0.1:109
 STARTEOF
 
 cat > /usr/local/bin/slowdns-nv4-start.sh << STARTEOF
