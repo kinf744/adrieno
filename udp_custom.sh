@@ -22,7 +22,7 @@ mkdir -p /etc/udp-custom
 cat > "$CONFIG_FILE" << 'EOF'
 {
   "listen": ":36712",
-  "exclude_port": [53,5300,5667,20000,4466],
+  "exclude_port": [53,5300,5667,5354,5353,20000,4466],
   "timeout": 600,
   "auth": {
     "mode": "passwords",
