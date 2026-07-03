@@ -484,14 +484,21 @@ install_badvpn() {
 uninstall_badvpn() {
     echo ">>> Désinstallation complète BadVPN..."
 
-    # Arrêt et suppression du service systemd
-    if systemctl list-units --full -all | grep -Fq 'badvpn.service'; then
-        echo "Arrêt et désactivation du service badvpn.service..."
-        systemctl stop badvpn.service || true
-        systemctl disable badvpn.service || true
-        rm -f "$SYSTEMD_UNIT"
-        systemctl daemon-reload
-    fi
+    PORTS=(7100 7200 7300)
+
+    # Arrêt et désactivation de chaque instance
+    for PORT in "${PORTS[@]}"; do
+        if systemctl list-units --full -all | grep -Fq "badvpn@${PORT}.service"; then
+            echo "Arrêt et désactivation de badvpn@${PORT}.service..."
+            systemctl stop "badvpn@${PORT}.service" || true
+            systemctl disable "badvpn@${PORT}.service" || true
+        fi
+    done
+
+    # Suppression du template systemd
+    rm -f /etc/systemd/system/badvpn@.service
+    systemctl daemon-reload
+    systemctl reset-failed 2>/dev/null || true
 
     # Suppression du binaire
     if [ -f "$BIN_PATH" ]; then
@@ -499,13 +506,14 @@ uninstall_badvpn() {
         rm -f "$BIN_PATH"
     fi
 
-    # Nettoyage des règles nftables pour le port
-    echo "Suppression des règles nftables pour le port UDP $PORT..."
+    # Nettoyage des règles nftables
+    echo "Suppression des règles nftables pour les ports UDP ${PORTS[*]}..."
     nft delete table inet badvpn 2>/dev/null || true
     rm -f /etc/nftables/badvpn.nft
     systemctl disable --now nftables-tunnel@badvpn.service 2>/dev/null || true
     systemctl daemon-reload
-    echo -e "${GREEN}[OK] BadVPN désinstallé.${RESET}"
+
+    echo -e "${GREEN}[OK] BadVPN désinstallé (3 instances + table nftables).${RESET}"
 }
 
 HYST_PORT=22000
