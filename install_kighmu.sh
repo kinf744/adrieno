@@ -312,6 +312,19 @@ done
 # FIN - ne rien mettre après ce "done"
 
 # ==========================================
+# Installation du script d'init nftables
+# ==========================================
+if [[ -f "$INSTALL_DIR/init-nftables.sh" ]]; then
+  cp "$INSTALL_DIR/init-nftables.sh" /usr/local/bin/init-nftables.sh
+  chmod +x /usr/local/bin/init-nftables.sh
+  echo "🚀 Initialisation de nftables..."
+  /usr/local/bin/init-nftables.sh
+  echo "✅ nftables initialisé"
+else
+  echo "⚠️ init-nftables.sh introuvable, initialisation nftables ignorée."
+fi
+
+# ==========================================
 # Configuration du nettoyage automatique
 # ==========================================
 
