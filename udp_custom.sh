@@ -35,12 +35,22 @@ EOF
 touch /etc/udp-custom/users.list
 chmod 600 /etc/udp-custom/users.list
 
-# 4️⃣ IPTABLES INTELLIGENT 
-iptables -C INPUT -p udp --dport 36712 -j ACCEPT 2>/dev/null || \
-iptables -A INPUT -p udp --dport 36712 -j ACCEPT
+# 4️⃣ NFTABLES - table dédiée au service UDP Custom
+/usr/local/bin/init-nftables.sh
 
-# SAVE IPTABLES 
-netfilter-persistent save 2>/dev/null || iptables-save > /etc/iptables/rules.v4
+nft delete table inet udp_custom 2>/dev/null || true
+
+nft -f - << EOF
+table inet udp_custom {
+    chain input {
+        type filter hook input priority 0; policy accept;
+        udp dport $UDP_PORT accept
+    }
+}
+EOF
+
+nft list table inet udp_custom > /etc/nftables/udp_custom.nft
+systemctl reload nftables 2>/dev/null || systemctl restart nftables
 
 # 5️⃣ SYSTEMD CORRIGÉ (**CLÉ : `server` comme ZIVPN**)
 cat > "/etc/systemd/system/$SERVICE_NAME" << EOF
