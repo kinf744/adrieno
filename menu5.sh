@@ -598,13 +598,28 @@ install_sshws() {
     sudo install -m 0755 sshws "$BIN_DST"
     echo "✅ SSHWS installé dans $BIN_DST"
 
-    # Firewall : ouvrir le port 80 si iptables disponible
-    if command -v iptables >/dev/null 2>&1; then
-        if ! sudo iptables -C INPUT -p tcp --dport 80 -j ACCEPT 2>/dev/null; then
-            sudo iptables -I INPUT -p tcp --dport 80 -j ACCEPT
-            command -v netfilter-persistent >/dev/null && sudo netfilter-persistent save
-            echo "✅ Port 80 ouvert dans le firewall"
-        fi
+    # Firewall : table nftables dédiée
+    /usr/local/bin/init-nftables.sh
+
+    TMP_NFT=$(mktemp)
+    cat > "$TMP_NFT" << 'EOF'
+table inet sshws {
+    chain input {
+        type filter hook input priority 0; policy accept;
+        tcp dport 80 accept
+    }
+}
+EOF
+
+    if nft -c -f "$TMP_NFT"; then
+        mv "$TMP_NFT" /etc/nftables/sshws.nft
+        systemctl daemon-reload
+        systemctl enable --now nftables-tunnel@sshws.service
+        systemctl restart nftables-tunnel@sshws.service
+        echo "✅ Port 80 ouvert (table nftables sshws)"
+    else
+        echo "❌ Erreur de syntaxe nftables — table sshws non appliquée"
+        rm -f "$TMP_NFT"
     fi
 
     # systemd : création du service si absent
