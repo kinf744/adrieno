@@ -343,7 +343,7 @@ install_zivpn() {
   systemctl stop ufw 2>/dev/null || true
   ufw disable 2>/dev/null || true
   apt purge ufw -y 2>/dev/null || true
-  apt update -y && apt install -y wget curl jq openssl iptables-persistent netfilter-persistent iproute2
+  apt update -y && apt install -y wget curl jq openssl iproute2
 
   wget -q "https://github.com/kinf744/Kighmu/releases/download/v1.0.0/udp-zivpn-linux-amd64" -O "$ZIVPN_BIN"
   chmod +x "$ZIVPN_BIN"
