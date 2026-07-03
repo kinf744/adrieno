@@ -290,6 +290,7 @@ FILES=(
   "ecosystem.config.js"
   "kighmu-server.sh"
   "index.html"
+  "init-nftables.sh"
   "vless_bot.py"
 )
 
