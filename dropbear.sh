@@ -169,6 +169,33 @@ systemctl daemon-reload
 systemctl enable --now dropbear-custom.service
 
 # ==============================
+# NFTABLES - table dédiée dropbear
+# ==============================
+info "🔥 Configuration nftables (port $DROPBEAR_PORT)..."
+/usr/local/bin/init-nftables.sh
+
+TMP_NFT=$(mktemp)
+cat > "$TMP_NFT" << EOF
+table inet dropbear {
+    chain input {
+        type filter hook input priority 0; policy accept;
+        tcp dport $DROPBEAR_PORT accept
+    }
+}
+EOF
+
+if nft -c -f "$TMP_NFT"; then
+    mv "$TMP_NFT" /etc/nftables/dropbear.nft
+    systemctl daemon-reload
+    systemctl enable --now nftables-tunnel@dropbear.service
+    systemctl restart nftables-tunnel@dropbear.service
+    info "✅ Table nftables dropbear chargée et persistée"
+else
+    warn "❌ Erreur de syntaxe nftables — table dropbear non appliquée"
+    rm -f "$TMP_NFT"
+fi
+
+# ==============================
 # VERIF FINALE
 # ==============================
 sleep 3
