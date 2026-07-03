@@ -35,31 +35,35 @@ EOF
 touch /etc/udp-custom/users.list
 chmod 600 /etc/udp-custom/users.list
 
-# # 4️⃣ NFTABLES - table dédiée avec validation avant écriture
+# 4️⃣ NFTABLES - table dédiée avec validation avant écriture
 /usr/local/bin/init-nftables.sh
 
 TMP_NFT=$(mktemp)
-cat > "$TMP_NFT" << 'EOF'
+cat > "$TMP_NFT" << EOF
 table inet udp_custom {
     chain input {
         type filter hook input priority 0; policy accept;
-        udp dport 36712 accept
+        udp dport $UDP_PORT accept
     }
     chain prerouting {
         type nat hook prerouting priority -100;
-        udp dport 1-65535 dnat to :36712
+        udp dport 1-65535 dnat to :$UDP_PORT
     }
 }
 EOF
 
-nft -c -f "$TMP_NFT" && {
-    nft delete table inet udp_custom
-    nft -f "$TMP_NFT"
+if nft -c -f "$TMP_NFT"; then
+    nft delete table inet udp_custom 2>/dev/null || true
     mv "$TMP_NFT" /etc/nftables/udp_custom.nft
+    nft -f /etc/nftables/udp_custom.nft
     systemctl daemon-reload
+    systemctl enable --now nftables-tunnel@udp_custom.service
     systemctl restart nftables-tunnel@udp_custom.service
-    echo "✅ Table udp_custom mise à jour avec la redirection de ports"
-}
+    echo "✅ Table nftables udp_custom chargée et persistée (avec redirection de ports)"
+else
+    echo "❌ Erreur de syntaxe nftables — table udp_custom non appliquée"
+    rm -f "$TMP_NFT"
+fi
 
 # 5️⃣ SYSTEMD CORRIGÉ (**CLÉ : `server` comme ZIVPN**)
 cat > "/etc/systemd/system/$SERVICE_NAME" << EOF
