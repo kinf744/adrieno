@@ -84,7 +84,7 @@ pkill -f badvpn-udpgw 2>/dev/null || true
 sleep 1
 
 # ==== Service systemd template (une instance par port) ====
-cat > /etc/systemd/system/badvpn@.service <<EOF
+cat > /etc/systemd/system/badvpn.service <<EOF
 [Unit]
 Description=BadVPN UDP Gateway (port %i)
 After=network.target
