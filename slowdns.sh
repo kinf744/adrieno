@@ -236,83 +236,39 @@ else
 fi
 
 info "Configuration nftables..."
-nft delete table ip slowdns 2>/dev/null || true
-nft delete table ip6 filter 2>/dev/null || true
 
-cat > /etc/nftables.conf << NFTEOF
-#!/usr/sbin/nft -f
-flush ruleset
-table ip nat {
-	chain PREROUTING {
-		type nat hook prerouting priority dstnat; policy accept;
+/usr/local/bin/init-nftables.sh
+
+TMP_NFT=$(mktemp)
+cat > "$TMP_NFT" << NFTEOF
+table inet slowdns {
+	chain prerouting {
+		type nat hook prerouting priority -100;
 		udp dport 53 redirect to :${DNSDIST_PORT}
 		tcp dport 53 redirect to :${DNSDIST_PORT}
 	}
-}
-table ip filter {
-	chain KIGHMU_UDP_COUNT {
-		udp dport 5667 counter
-		udp sport 5667 counter
-		udp dport 20000-50000 counter
-		udp sport 20000-50000 counter
-	}
-	chain INPUT {
-		type filter hook input priority filter; policy accept;
-		iif lo accept
-		ct state established,related accept
+	chain input {
+		type filter hook input priority 0; policy accept;
 		udp dport 53 accept
 		udp dport ${DNSDIST_PORT} accept
 		udp dport 5353 accept
 		udp dport 5354 accept
-		tcp dport 22 accept
 		tcp dport 5401 accept
-		counter jump KIGHMU_UDP_COUNT
-	}
-	chain OUTPUT {
-		type filter hook output priority filter; policy accept;
-		counter jump KIGHMU_UDP_COUNT
-	}
-	chain FORWARD {
-		type filter hook forward priority filter; policy accept;
 	}
 }
 NFTEOF
 
-if [[ "$IPV6_DISABLED" == "0" ]]; then
-  cat >> /etc/nftables.conf << NFTEOF6
-table ip6 nat {
-	chain PREROUTING {
-		type nat hook prerouting priority dstnat; policy accept;
-		udp dport 53 redirect to :${DNSDIST_PORT}
-		tcp dport 53 redirect to :${DNSDIST_PORT}
-	}
-}
-table ip6 filter {
-	chain INPUT {
-		type filter hook input priority filter; policy accept;
-		iif lo accept
-		ct state established,related accept
-		udp dport 53 accept
-		udp dport ${DNSDIST_PORT} accept
-		udp dport 5353 accept
-		udp dport 5354 accept
-		tcp dport 22 accept
-		tcp dport 5401 accept
-	}
-	chain OUTPUT { type filter hook output priority filter; policy accept; }
-	chain FORWARD { type filter hook forward priority filter; policy accept; }
-}
-NFTEOF6
-  ok "table ip6 nat+filter ajoutées"
+if nft -c -f "$TMP_NFT"; then
+    mv "$TMP_NFT" /etc/nftables/slowdns.nft
+    systemctl daemon-reload
+    systemctl enable --now nftables-tunnel@slowdns.service
+    systemctl restart nftables-tunnel@slowdns.service
+    ok "Table nftables slowdns chargée et persistée"
 else
-  warn "IPv6 désactivé — tables ip6 ignorées"
+    err "Erreur nftables"
+    rm -f "$TMP_NFT"
+    exit 1
 fi
-
-nft -f /etc/nftables.conf && ok "nftables OK" || { err "Erreur nftables"; exit 1; }
-
-info "Durabilité long terme..."
-
-systemctl enable nftables 2>/dev/null && ok "nftables activé au boot" || warn "Impossible d'activer nftables"
 
 chattr -i /etc/resolv.conf 2>/dev/null || true
 printf 'nameserver 1.1.1.1\nnameserver 8.8.8.8\n' > /etc/resolv.conf
