@@ -126,11 +126,11 @@ cat > "$TMP_NFT" << EOF
 table inet badvpn {
     chain input {
         type filter hook input priority 0; policy accept;
-        udp dport { ${PORTS[0]}, ${PORTS[1]}, ${PORTS[2]} } accept
+        tcp dport { ${PORTS[0]}, ${PORTS[1]}, ${PORTS[2]} } accept
     }
     chain output {
         type filter hook output priority 0; policy accept;
-        udp sport { ${PORTS[0]}, ${PORTS[1]}, ${PORTS[2]} } accept
+        tcp sport { ${PORTS[0]}, ${PORTS[1]}, ${PORTS[2]} } accept
     }
 }
 EOF
