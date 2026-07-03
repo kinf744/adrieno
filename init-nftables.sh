@@ -1,27 +1,38 @@
 #!/bin/bash
 set -euo pipefail
 
-# Init unique du système nftables — à lancer une seule fois sur le VPS
 if [ -f /etc/nftables/.initialized ]; then
     exit 0
 fi
 
-apt install -y nftables
+apt-get install -y nftables || { echo "❌ Impossible d'installer nftables"; exit 1; }
 mkdir -p /etc/nftables
 
-if [ ! -s /etc/nftables.conf ]; then
+# Config de base minimale, SANS include global fragile
 cat > /etc/nftables.conf << 'EOF'
 #!/usr/sbin/nft -f
-
 flush ruleset
-
-include "/etc/nftables/*.nft"
 EOF
-else
-    grep -q 'include "/etc/nftables/\*.nft"' /etc/nftables.conf || \
-    echo 'include "/etc/nftables/*.nft"' >> /etc/nftables.conf
-fi
 
+# Template systemd réutilisable pour chaque tunnel
+cat > /etc/systemd/system/nftables-tunnel@.service << 'EOF'
+[Unit]
+Description=Charge la table nftables du tunnel %i
+After=nftables.service network-online.target
+Wants=network-online.target
+PartOf=nftables.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/sbin/nft -f /etc/nftables/%i.nft
+ExecStop=/usr/sbin/nft delete table inet %i
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+systemctl daemon-reload
 systemctl enable nftables
 systemctl restart nftables
 
