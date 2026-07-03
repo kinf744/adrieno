@@ -35,12 +35,11 @@ EOF
 touch /etc/udp-custom/users.list
 chmod 600 /etc/udp-custom/users.list
 
-# 4️⃣ NFTABLES - table dédiée au service UDP Custom
+# # 4️⃣ NFTABLES - table dédiée avec validation avant écriture
 /usr/local/bin/init-nftables.sh
 
-nft delete table inet udp_custom 2>/dev/null || true
-
-nft -f - << EOF
+TMP_NFT=$(mktemp)
+cat > "$TMP_NFT" << EOF
 table inet udp_custom {
     chain input {
         type filter hook input priority 0; policy accept;
@@ -49,8 +48,16 @@ table inet udp_custom {
 }
 EOF
 
-nft list table inet udp_custom > /etc/nftables/udp_custom.nft
-systemctl reload nftables 2>/dev/null || systemctl restart nftables
+if nft -c -f "$TMP_NFT"; then
+    mv "$TMP_NFT" /etc/nftables/udp_custom.nft
+    systemctl daemon-reload
+    systemctl enable --now nftables-tunnel@udp_custom.service
+    systemctl restart nftables-tunnel@udp_custom.service
+    echo "✅ Table nftables udp_custom chargée et persistée"
+else
+    echo "❌ Erreur de syntaxe nftables — table udp_custom non appliquée"
+    rm -f "$TMP_NFT"
+fi
 
 # 5️⃣ SYSTEMD CORRIGÉ (**CLÉ : `server` comme ZIVPN**)
 cat > "/etc/systemd/system/$SERVICE_NAME" << EOF
