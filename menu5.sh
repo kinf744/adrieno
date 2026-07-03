@@ -235,6 +235,14 @@ uninstall_dropbear() {
     [[ -f /var/log/dropbear-port109.log ]] && rm -f /var/log/dropbear-port109.log
     [[ -f /var/log/dropbear_custom.log ]] && rm -f /var/log/dropbear_custom.log
 
+    # Nettoyage nftables
+    nft delete table inet dropbear 2>/dev/null || true
+    rm -f /etc/nftables/dropbear.nft
+    systemctl disable --now nftables-tunnel@dropbear.service 2>/dev/null || true
+    systemctl daemon-reload
+    
+    echo "Table nftables dropbear supprimée"
+
     echo -e "${GREEN}[OK] Dropbear désinstallé complètement.${NC}"
 }
 
