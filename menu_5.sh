@@ -665,9 +665,12 @@ desinstaller_v2ray() {
         [ -f "$USER_DB" ] && rm -f "$USER_DB"
 
         # Nettoyer iptables V2Ray (port 5401 TCP)
-        iptables -D INPUT -p tcp --dport 5401 -j ACCEPT 2>/dev/null || true
-        netfilter-persistent save 2>/dev/null || true
-
+        nft delete table inet v2ray 2>/dev/null || true
+    rm -f /etc/nftables/v2ray.nft
+    systemctl disable --now nftables-tunnel@v2ray.service 2>/dev/null || true
+    systemctl daemon-reload
+    echo "[OK] Table nftables v2ray supprimée"
+    
         # Recharger systemd
         systemctl daemon-reload
 
