@@ -183,11 +183,11 @@ EOF
 
   systemctl daemon-reload && systemctl enable "$HYSTERIA_SERVICE"
 
-  /usr/local/bin/init-nftables.sh
+  # 4️⃣ NFTABLES - table dédiée avec validation avant écriture
+/usr/local/bin/init-nftables.sh
 
-  nft delete table inet hysteria 2>/dev/null || true
-
-  nft -f - << EOF
+TMP_NFT=$(mktemp)
+cat > "$TMP_NFT" << 'EOF'
 table inet hysteria {
     chain input {
         type filter hook input priority 0; policy accept;
@@ -201,8 +201,16 @@ table inet hysteria {
 }
 EOF
 
-  nft list table inet hysteria > /etc/nftables/hysteria.nft
-  systemctl reload nftables 2>/dev/null || systemctl restart nftables
+if nft -c -f "$TMP_NFT"; then
+    mv "$TMP_NFT" /etc/nftables/hysteria.nft
+    systemctl daemon-reload
+    systemctl enable --now nftables-tunnel@hysteria.service
+    systemctl restart nftables-tunnel@hysteria.service
+    echo "✅ Table nftables zivpn chargée et persistée"
+else
+    echo "❌ Erreur de syntaxe nftables — table hysteria non appliquée"
+    rm -f "$TMP_NFT"
+fi
   
   sysctl -w net.core.rmem_max=16777216 2>/dev/null || true
   sysctl -w net.core.wmem_max=16777216 2>/dev/null || true
@@ -319,11 +327,11 @@ fix_hysteria() {
 
   systemctl reset-failed hysteria.service 2>/dev/null || true
 
-  /usr/local/bin/init-nftables.sh
+  # 4️⃣ NFTABLES - table dédiée avec validation avant écriture
+/usr/local/bin/init-nftables.sh
 
-  nft delete table inet hysteria 2>/dev/null || true
-
-  nft -f - << EOF
+TMP_NFT=$(mktemp)
+cat > "$TMP_NFT" << 'EOF'
 table inet hysteria {
     chain input {
         type filter hook input priority 0; policy accept;
@@ -337,8 +345,16 @@ table inet hysteria {
 }
 EOF
 
-  nft list table inet hysteria > /etc/nftables/hysteria.nft
-  systemctl reload nftables 2>/dev/null || systemctl restart nftables
+if nft -c -f "$TMP_NFT"; then
+    mv "$TMP_NFT" /etc/nftables/hysteria.nft
+    systemctl daemon-reload
+    systemctl enable --now nftables-tunnel@hysteria.service
+    systemctl restart nftables-tunnel@hysteria.service
+    echo "✅ Table nftables zivpn chargée et persistée"
+else
+    echo "❌ Erreur de syntaxe nftables — table hysteria non appliquée"
+    rm -f "$TMP_NFT"
+fi
   
   systemctl restart hysteria.service || true
   sleep 2
