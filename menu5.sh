@@ -413,12 +413,33 @@ EOF
     sudo systemctl enable --now ssl_tls
     echo "[OK] Service systemd créé et démarré"
 
-    # Ouvrir le port TCP 444 (iptables)
-    sudo iptables -C INPUT -p tcp --dport 444 -j ACCEPT 2>/dev/null || \
-        sudo iptables -I INPUT -p tcp --dport 444 -j ACCEPT
+    # Ouvrir le port TCP 444 (table nftables dédiée)
+    /usr/local/bin/init-nftables.sh
 
-    sudo iptables -C OUTPUT -p tcp --sport 444 -j ACCEPT 2>/dev/null || \
-        sudo iptables -I OUTPUT -p tcp --sport 444 -j ACCEPT
+    TMP_NFT=$(mktemp)
+    cat > "$TMP_NFT" << 'EOF'
+table inet ssl_tls {
+    chain input {
+        type filter hook input priority 0; policy accept;
+        tcp dport 444 accept
+    }
+    chain output {
+        type filter hook output priority 0; policy accept;
+        tcp sport 444 accept
+    }
+}
+EOF
+
+    if nft -c -f "$TMP_NFT"; then
+        mv "$TMP_NFT" /etc/nftables/ssl_tls.nft
+        systemctl daemon-reload
+        systemctl enable --now nftables-tunnel@ssl_tls.service
+        systemctl restart nftables-tunnel@ssl_tls.service
+        echo "[OK] Port TCP 444 autorisé (table nftables ssl_tls)"
+    else
+        echo "[ERREUR] Erreur de syntaxe nftables — table ssl_tls non appliquée"
+        rm -f "$TMP_NFT"
+    fi
 
     echo "[OK] Port TCP 444 autorisé"
 
@@ -448,15 +469,11 @@ uninstall_ssl_tls() {
     BIN_DST="/usr/local/bin/ssl_tls"
     [ -f "$BIN_DST" ] && sudo rm -f "$BIN_DST"
 
-    # Supprimer les règles iptables
-    for PORT in 444; do
-        while sudo iptables -C INPUT -p tcp --dport "$PORT" -j ACCEPT 2>/dev/null; do
-            sudo iptables -D INPUT -p tcp --dport "$PORT" -j ACCEPT
-        done
-        while sudo iptables -C OUTPUT -p tcp --sport "$PORT" -j ACCEPT 2>/dev/null; do
-            sudo iptables -D OUTPUT -p tcp --sport "$PORT" -j ACCEPT
-        done
-    done
+    nft delete table inet ssl_tls 2>/dev/null || true
+    rm -f /etc/nftables/ssl_tls.nft
+    systemctl disable --now nftables-tunnel@ssl_tls.service 2>/dev/null || true
+    systemctl daemon-reload
+    echo "[OK] Table nftables ssl_tls supprimée"
 
     echo "[OK] Tunnel SSL/TLS désinstallé proprement."
 }
@@ -682,17 +699,11 @@ uninstall_sshws() {
     [ -f /usr/local/bin/sshws ] && rm -f /usr/local/bin/sshws && echo "🗑️ Binaire sshws supprimé"
     [ -d /var/log/sshws ] && rm -rf /var/log/sshws && echo "🗑️ Logs sshws supprimés"
 
-    for PORT in 80 88 8080; do
-        while iptables -C INPUT -p tcp --dport "$PORT" -j ACCEPT 2>/dev/null; do
-            iptables -D INPUT -p tcp --dport "$PORT" -j ACCEPT
-            echo "🔥 Règle iptables supprimée pour le port $PORT"
-        done
-    done
-
-    if command -v netfilter-persistent >/dev/null 2>&1; then
-        netfilter-persistent save >/dev/null 2>&1
-        echo "💾 Règles iptables sauvegardées"
-    fi
+    nft delete table inet sshws 2>/dev/null || true
+    rm -f /etc/nftables/sshws.nft
+    systemctl disable --now nftables-tunnel@sshws.service 2>/dev/null || true
+    systemctl daemon-reload
+    echo "🔥 Table nftables sshws supprimée"
 
     if command -v screen >/dev/null 2>&1; then
         screen -ls | awk '/sshws/ {print $1}' | xargs -r -n1 screen -S {} -X quit
