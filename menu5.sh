@@ -21,7 +21,7 @@ afficher_modes_ports() {
     if systemctl is-active --quiet socks_python.service || pgrep -f KIGHMUPROXY.py >/dev/null 2>&1 || screen -list | grep -q socks_python; then any_active=1; fi
     if systemctl is-active --quiet socks_python_ws.service || pgrep -f ws2_proxy.py >/dev/null 2>&1; then any_active=1; fi
     if systemctl is-active --quiet ssl_tls.service || pgrep -f stunnel >/dev/null 2>&1; then any_active=1; fi
-    if systemctl is-active --quiet badvpn@.service || pgrep -f "badvpn-udpgw" >/dev/null 2>&1 || screen -list | grep -q badvpn_session; then any_active=1; fi
+    if systemctl is-active --quiet badvpn@7100.service badvpn@7200.service badvpn@7300.service 2>/dev/null || pgrep -f "badvpn-udpgw" >/dev/null 2>&1; then any_active=1; fi
     if systemctl is-active --quiet histeria2.service || pgrep -f hysteria >/dev/null 2>&1; then any_active=1; fi
     if systemctl is-active --quiet sshws.service || pgrep -f sshws >/dev/null 2>&1; then any_active=1; fi
     if systemctl is-active --quiet udp_request.service || pgrep -f udp_request >/dev/null 2>&1; then any_active=1; fi
@@ -60,8 +60,8 @@ afficher_modes_ports() {
     if systemctl is-active --quiet ssl_tls.service || pgrep -f stunnel >/dev/null 2>&1; then
         echo -e "  - Stunnel SSL/TLS: ${GREEN}port TCP 444${RESET}"
     fi
-    if systemctl is-active --quiet badvpn@.service || pgrep -f stunnel >/dev/null 2>&1; then
-        echo -e "  - badvpn: ${GREEN}port UDP 7300${RESET}"
+    if systemctl is-active --quiet badvpn@7100.service badvpn@7200.service badvpn@7300.service 2>/dev/null || pgrep -f "badvpn-udpgw" >/dev/null 2>&1; then
+    echo -e "  - badvpn: ${GREEN}ports TCP 7100, 7200, 7300${RESET}"
     fi
     if systemctl is-active --quiet histeria2.service || pgrep -f hysteria >/dev/null 2>&1; then
         echo -e "  - Hysteria 2 UDP : ${GREEN}port UDP 20000${RESET}"
