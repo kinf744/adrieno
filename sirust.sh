@@ -636,11 +636,9 @@ uninstall_zivpn() {
   rm -f "$ZIVPN_BIN"
   rm -rf /etc/zivpn
 
-  iptables -t nat -D PREROUTING -p udp --dport 6000:19999 -j DNAT --to-destination :5667 2>/dev/null || true
-  iptables -D INPUT -p udp --dport 5667 -j ACCEPT 2>/dev/null || true
-  iptables -D INPUT -p udp --dport 6000:19999 -j ACCEPT 2>/dev/null || true
-
-  netfilter-persistent save 2>/dev/null || iptables-save > /etc/iptables/rules.v4
+  nft delete table inet zivpn 2>/dev/null || true
+  rm -f /etc/nftables/zivpn.nft
+  systemctl reload nftables 2>/dev/null || systemctl restart nftables
 
   echo "✅ ZIVPN supprimé"
   pause
