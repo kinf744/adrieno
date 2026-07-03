@@ -126,7 +126,7 @@ install_hysteria() {
   systemctl stop ufw 2>/dev/null || true
   ufw disable 2>/dev/null || true
   apt purge ufw -y 2>/dev/null || true
-  apt update -y && apt install -y wget curl jq openssl iptables-persistent netfilter-persistent
+  apt update -y && apt install -y wget curl jq openssl
 
   wget -q "https://github.com/apernet/hysteria/releases/download/v1.3.4/hysteria-linux-amd64" -O "$HYSTERIA_BIN"
   chmod +x "$HYSTERIA_BIN"
