@@ -365,14 +365,26 @@ install_zivpn() {
   systemctl daemon-reload && systemctl enable "$ZIVPN_SERVICE"
 
   # Firewall / NAT
-  iptables -C INPUT -p udp --dport 5667 -j ACCEPT 2>/dev/null || \
-    iptables -A INPUT -p udp --dport 5667 -j ACCEPT
-  iptables -C INPUT -p udp --dport 6000:19999 -j ACCEPT 2>/dev/null || \
-    iptables -A INPUT -p udp --dport 6000:19999 -j ACCEPT
-  iptables -t nat -C PREROUTING -p udp --dport 6000:19999 -j DNAT --to-destination :5667 2>/dev/null || \
-    iptables -t nat -A PREROUTING -p udp --dport 6000:19999 -j DNAT --to-destination :5667
+  /usr/local/bin/init-nftables.sh
 
-  netfilter-persistent save 2>/dev/null || iptables-save > /etc/iptables/rules.v4
+  nft delete table inet zivpn 2>/dev/null || true
+
+  nft -f - << EOF
+table inet zivpn {
+    chain input {
+        type filter hook input priority 0; policy accept;
+        udp dport 5667 accept
+        udp dport 6000-19999 accept
+    }
+    chain prerouting {
+        type nat hook prerouting priority -100;
+        udp dport 6000-19999 dnat to :5667
+    }
+}
+EOF
+
+  nft list table inet zivpn > /etc/nftables/zivpn.nft
+  systemctl reload nftables 2>/dev/null || systemctl restart nftables
 
   # Optimisations réseau complètes (BBR + buffers 67Mo + FQ qdisc)
   apply_network_optimizations
@@ -510,16 +522,27 @@ fix_zivpn() {
   echo "[4] FIX ZIVPN (iptables + service + optimisations)"
 
   systemctl reset-failed zivpn.service 2>/dev/null || true
-  update-alternatives --set iptables /usr/sbin/iptables-legacy 2>/dev/null || true
 
-  iptables -C INPUT -p udp --dport 5667 -j ACCEPT 2>/dev/null || \
-    iptables -A INPUT -p udp --dport 5667 -j ACCEPT
-  iptables -C INPUT -p udp --dport 6000:19999 -j ACCEPT 2>/dev/null || \
-    iptables -A INPUT -p udp --dport 6000:19999 -j ACCEPT
-  iptables -t nat -C PREROUTING -p udp --dport 6000:19999 -j DNAT --to-destination :5667 2>/dev/null || \
-    iptables -t nat -A PREROUTING -p udp --dport 6000:19999 -j DNAT --to-destination :5667
+  /usr/local/bin/init-nftables.sh
 
-  netfilter-persistent save 2>/dev/null || true
+  nft delete table inet zivpn 2>/dev/null || true
+
+  nft -f - << EOF
+table inet zivpn {
+    chain input {
+        type filter hook input priority 0; policy accept;
+        udp dport 5667 accept
+        udp dport 6000-19999 accept
+    }
+    chain prerouting {
+        type nat hook prerouting priority -100;
+        udp dport 6000-19999 dnat to :5667
+    }
+}
+EOF
+
+  nft list table inet zivpn > /etc/nftables/zivpn.nft
+  systemctl reload nftables 2>/dev/null || systemctl restart nftables
 
   # Réappliquer les optimisations réseau
   apply_network_optimizations
