@@ -165,13 +165,10 @@ uninstall_slowdns() {
 
   ( crontab -l 2>/dev/null | grep -v "slowdns" ) | crontab -
 
-  nft delete table ip slowdns 2>/dev/null || true
-  nft delete table ip nat 2>/dev/null || true
-  nft delete table ip6 nat 2>/dev/null || true
-  nft delete table ip filter 2>/dev/null || true
-  nft delete table ip6 filter 2>/dev/null || true
-  nft -f /etc/nftables.conf 2>/dev/null || true
-  netfilter-persistent save 2>/dev/null || true
+  nft delete table inet slowdns 2>/dev/null || true
+  rm -f /etc/nftables/slowdns.nft
+  systemctl disable --now nftables-tunnel@slowdns.service 2>/dev/null || true
+  systemctl daemon-reload
 
   apt-mark unhold dnsdist 2>/dev/null || true
 
