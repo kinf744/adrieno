@@ -263,12 +263,11 @@ uninstall_udp_custom() {
   rm -rf /etc/udp-custom
   rm -f /var/log/udp-custom 2>/dev/null || true
 
-  # 3) IPTABLES UDP-CUSTOM UNIQUEMENT (EXACT match installation)
-  iptables -D INPUT -p udp --dport 36712 -j ACCEPT 2>/dev/null || true
-  iptables -t nat -D PREROUTING -p udp --dport 36712 -j DNAT --to-destination :36712 2>/dev/null || true
-
-  # ✅ SAUVEGARDE iptables (AUTRES tunnels préservés)
-  netfilter-persistent save 2>/dev/null || iptables-save > /etc/iptables/rules.v4
+  # 3) NFTABLES UDP-CUSTOM UNIQUEMENT (EXACT match installation)
+  nft delete table inet udp-custom 2>/dev/null || true
+  rm -f /etc/nftables/udp-custom.nft
+  systemctl disable --now nftables-tunnel@udp-custom.service 2>/dev/null || true
+  systemctl daemon-reload
 
   echo "✅ UDP-Custom supprimé SANS toucher autres tunnels"
   echo "   Vérifiez: iptables -L INPUT -n | grep 36712"
