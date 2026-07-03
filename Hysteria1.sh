@@ -366,10 +366,11 @@ uninstall_hysteria() {
   rm -f "$HYSTERIA_BIN"
   rm -rf /etc/hysteria
 
-  nft delete table inet hysteria 2>/dev/null || true
-  rm -f /etc/nftables/hysteria.nft
-  systemctl reload nftables 2>/dev/null || systemctl restart nftables
-
+  systemctl disable --now nftables-tunnel@hysteria.service 2>/dev/null || true
+rm -f /etc/systemd/system/nftables-tunnel@hysteria.service.d/* 2>/dev/null || true
+rm -f /etc/nftables/hysteria.nft
+systemctl daemon-reload
+  
   echo "✅ HYSTERIA supprimé"
   pause
 }
