@@ -255,7 +255,6 @@ FILES=(
   "udp_custom.sh"
   "dropbear.sh"
   "proxy3.js"
-  "ws_tt_ssl.sh"
   "system_dns.sh"
   "show_resources.sh"
   "setup_ssh_config.sh"
