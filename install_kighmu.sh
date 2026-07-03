@@ -272,6 +272,7 @@ FILES=(
   "install_v2ray.sh"
   "sirust.sh"
   "Hysteria1.sh"
+  "badvpn.sh"
   "Auto-clean.sh"
   "install-1.sh"
   "schema.sql"
