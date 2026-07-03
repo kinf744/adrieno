@@ -183,15 +183,27 @@ EOF
 
   systemctl daemon-reload && systemctl enable "$HYSTERIA_SERVICE"
 
-  iptables -C INPUT -p udp --dport 20000 -j ACCEPT 2>/dev/null || \
-    iptables -A INPUT -p udp --dport 20000 -j ACCEPT
-  iptables -C INPUT -p udp --dport 20000:50000 -j ACCEPT 2>/dev/null || \
-    iptables -A INPUT -p udp --dport 20000:50000 -j ACCEPT
-  iptables -t nat -C PREROUTING -p udp --dport 20000:50000 -j DNAT --to-destination :20000 2>/dev/null || \
-    iptables -t nat -A PREROUTING -p udp --dport 20000:50000 -j DNAT --to-destination :20000
+  /usr/local/bin/init-nftables.sh
 
-  netfilter-persistent save 2>/dev/null || iptables-save > /etc/iptables/rules.v4
+  nft delete table inet hysteria 2>/dev/null || true
 
+  nft -f - << EOF
+table inet hysteria {
+    chain input {
+        type filter hook input priority 0; policy accept;
+        udp dport 20000 accept
+        udp dport 20000-50000 accept
+    }
+    chain prerouting {
+        type nat hook prerouting priority -100;
+        udp dport 20000-50000 dnat to :20000
+    }
+}
+EOF
+
+  nft list table inet hysteria > /etc/nftables/hysteria.nft
+  systemctl reload nftables 2>/dev/null || systemctl restart nftables
+  
   sysctl -w net.core.rmem_max=16777216 2>/dev/null || true
   sysctl -w net.core.wmem_max=16777216 2>/dev/null || true
   grep -q "rmem_max=16777216" /etc/sysctl.conf || echo "net.core.rmem_max=16777216" >> /etc/sysctl.conf
@@ -307,15 +319,27 @@ fix_hysteria() {
 
   systemctl reset-failed hysteria.service 2>/dev/null || true
 
-  iptables -C INPUT -p udp --dport 20000 -j ACCEPT 2>/dev/null || \
-    iptables -A INPUT -p udp --dport 20000 -j ACCEPT
-  iptables -C INPUT -p udp --dport 20000:50000 -j ACCEPT 2>/dev/null || \
-    iptables -A INPUT -p udp --dport 20000:50000 -j ACCEPT
-  iptables -t nat -C PREROUTING -p udp --dport 20000:50000 -j DNAT --to-destination :20000 2>/dev/null || \
-    iptables -t nat -A PREROUTING -p udp --dport 20000:50000 -j DNAT --to-destination :20000
+  /usr/local/bin/init-nftables.sh
 
-  netfilter-persistent save 2>/dev/null || iptables-save > /etc/iptables/rules.v4
+  nft delete table inet hysteria 2>/dev/null || true
 
+  nft -f - << EOF
+table inet hysteria {
+    chain input {
+        type filter hook input priority 0; policy accept;
+        udp dport 20000 accept
+        udp dport 20000-50000 accept
+    }
+    chain prerouting {
+        type nat hook prerouting priority -100;
+        udp dport 20000-50000 dnat to :20000
+    }
+}
+EOF
+
+  nft list table inet hysteria > /etc/nftables/hysteria.nft
+  systemctl reload nftables 2>/dev/null || systemctl restart nftables
+  
   systemctl restart hysteria.service || true
   sleep 2
 
@@ -342,11 +366,9 @@ uninstall_hysteria() {
   rm -f "$HYSTERIA_BIN"
   rm -rf /etc/hysteria
 
-  iptables -t nat -D PREROUTING -p udp --dport 20000:50000 -j DNAT --to-destination :20000 2>/dev/null || true
-  iptables -D INPUT -p udp --dport 20000 -j ACCEPT 2>/dev/null || true
-  iptables -D INPUT -p udp --dport 20000:50000 -j ACCEPT 2>/dev/null || true
-
-  netfilter-persistent save 2>/dev/null || iptables-save > /etc/iptables/rules.v4
+  nft delete table inet hysteria 2>/dev/null || true
+  rm -f /etc/nftables/hysteria.nft
+  systemctl reload nftables 2>/dev/null || systemctl restart nftables
 
   echo "✅ HYSTERIA supprimé"
   pause
