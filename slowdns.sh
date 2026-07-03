@@ -395,7 +395,9 @@ echo -e "  rm -f $SLOWDNS_BIN /usr/local/bin/slowdns-*"
 echo -e "  rm -f /etc/dnsdist/dnsdist.conf /etc/logrotate.d/slowdns"
 echo -e "  chattr -i /etc/resolv.conf"
 echo -e "  rm -f /etc/sysctl.d/99-slowdns.conf"
-echo -e "  cp $BACKUP_DIR/nftables.conf /etc/nftables.conf && nft -f /etc/nftables.conf"
+echo -e "  nft delete table inet slowdns"
+echo -e "  rm -f /etc/nftables/slowdns.nft"
+echo -e "  systemctl disable --now nftables-tunnel@slowdns.service"
 echo -e "  systemctl daemon-reload"
 
 sep
