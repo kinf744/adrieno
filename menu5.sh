@@ -271,13 +271,13 @@ uninstall_udp_custom() {
   rm -f /var/log/udp-custom 2>/dev/null || true
 
   # 3) NFTABLES UDP-CUSTOM UNIQUEMENT (EXACT match installation)
-  nft delete table inet udp-custom 2>/dev/null || true
-  rm -f /etc/nftables/udp-custom.nft
-  systemctl disable --now nftables-tunnel@udp-custom.service 2>/dev/null || true
+  nft delete table inet udp_custom 2>/dev/null || true
+  rm -f /etc/nftables/udp_custom.nft
+  systemctl disable --now nftables-tunnel@udp_custom.service 2>/dev/null || true
   systemctl daemon-reload
 
   echo "✅ UDP-Custom supprimé SANS toucher autres tunnels"
-  echo "   Vérifiez: nft list chain inet kighmu input | grep 36712"
+  echo "   Vérifiez: nft list ruleset | grep -A5 'table inet udp_custom'"
   pause
 }
 
