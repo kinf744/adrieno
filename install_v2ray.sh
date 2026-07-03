@@ -216,13 +216,33 @@ EOF
 # ============================================================
 # FIREWALL
 # ============================================================
-if command -v nft &>/dev/null && nft list tables 2>/dev/null | grep -q "ip filter"; then
-  nft add rule ip filter INPUT tcp dport 5401 accept 2>/dev/null || true
-  nft -f /etc/nftables.conf 2>/dev/null || true
-else
-  iptables -I INPUT -p tcp --dport 5401 -j ACCEPT
-  netfilter-persistent save >/dev/null 2>&1 || true
-fi
+# Ouvrir le port TCP 444 (table nftables dédiée)
+    /usr/local/bin/init-nftables.sh
+
+    TMP_NFT=$(mktemp)
+    cat > "$TMP_NFT" << 'EOF'
+table inet v2ray {
+    chain input {
+        type filter hook input priority 0; policy accept;
+        tcp dport 5401 accept
+    }
+    chain output {
+        type filter hook output priority 0; policy accept;
+        tcp sport 5401 accept
+    }
+}
+EOF
+
+    if nft -c -f "$TMP_NFT"; then
+        mv "$TMP_NFT" /etc/nftables/v2ray.nft
+        systemctl daemon-reload
+        systemctl enable --now nftables-tunnel@v2ray.service
+        systemctl restart nftables-tunnel@v2ray.service
+        echo "[OK] Port TCP 5401 autorisé (table nftables v2ray)"
+    else
+        echo "[ERREUR] Erreur de syntaxe nftables — table v2ray non appliquée"
+        rm -f "$TMP_NFT"
+    fi
 
 # ============================================================
 # LOGROTATE — évite saturation disque sur 6-12 mois
