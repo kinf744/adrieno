@@ -651,9 +651,10 @@ uninstall_zivpn() {
   rm -f "$ZIVPN_BIN"
   rm -rf /etc/zivpn
 
-  nft delete table inet zivpn 2>/dev/null || true
-  rm -f /etc/nftables/zivpn.nft
-  systemctl reload nftables 2>/dev/null || systemctl restart nftables
+  systemctl disable --now nftables-tunnel@zivpn.service 2>/dev/null || true
+rm -f /etc/systemd/system/nftables-tunnel@zivpn.service.d/* 2>/dev/null || true
+rm -f /etc/nftables/zivpn.nft
+systemctl daemon-reload
 
   echo "✅ ZIVPN supprimé"
   pause
