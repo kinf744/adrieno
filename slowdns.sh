@@ -253,6 +253,7 @@ table inet slowdns {
 		udp dport ${DNSDIST_PORT} accept
 		udp dport 5353 accept
 		udp dport 5354 accept
+		tcp dport 109 accept
 		tcp dport 5401 accept
 	}
 }
