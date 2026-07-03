@@ -1,5 +1,5 @@
 #!/bin/bash
-# badvpn.sh - Installation complète de BadVPN-UDPGW avec iptables persistantes
+# badvpn.sh - Installation complète de BadVPN-UDPGW (3 instances) depuis les sources officielles
 # Auteur: kinf744 (2025) - Licence MIT
 
 set -euo pipefail
@@ -17,13 +17,13 @@ if [[ $EUID -ne 0 ]]; then
 fi
 
 # Config
-BIN_PATH="/root/Kighmu/badvpn-udpgw"
-BINARY_URL="https://raw.githubusercontent.com/kinf744/binaries/main/badvpn-udpgw"
-PORT="7300"
+BIN_PATH="/usr/local/bin/badvpn-udpgw"
+SRC_REPO="https://github.com/ambrop72/badvpn.git"
+SRC_DIR="/tmp/badvpn-src"
 LISTEN_ADDR="127.0.0.1"
+PORTS=(7100 7200 7300)
 LOG_DIR="/var/log/badvpn"
 LOG_FILE="$LOG_DIR/install.log"
-SYSTEMD_UNIT="/etc/systemd/system/badvpn.service"
 
 mkdir -p "$LOG_DIR"
 exec > >(tee -a "$LOG_FILE") 2>&1
@@ -32,47 +32,72 @@ echo "+--------------------------------------------+"
 echo "|             DÉBUT D'INSTALLATION           |"
 echo "+--------------------------------------------+"
 
-# Vérifie si wget ou curl est disponible
-if ! command -v wget >/dev/null 2>&1 && ! command -v curl >/dev/null 2>&1; then
-  echo -e "${RED}Erreur : wget ou curl doit être installé.${RESET}"
-  exit 1
-fi
+# ==== Dépendances de compilation ====
+echo "Installation des dépendances de compilation..."
+apt-get update -qq
+apt-get install -y -qq git cmake build-essential
 
-# Télécharger ou utiliser le binaire existant
+# ==== Compilation depuis la source officielle ====
 if [ ! -x "$BIN_PATH" ]; then
-  mkdir -p "$(dirname "$BIN_PATH")"
-  echo "Téléchargement du binaire BadVPN..."
-  if command -v wget >/dev/null 2>&1; then
-    wget -q --show-progress -O "$BIN_PATH" "$BINARY_URL" || { echo -e "${RED}Échec téléchargement.${RESET}"; exit 1; }
-  else
-    curl -L --progress-bar -o "$BIN_PATH" "$BINARY_URL" || { echo -e "${RED}Échec téléchargement.${RESET}"; exit 1; }
+  echo "Clonage du dépôt officiel BadVPN..."
+  rm -rf "$SRC_DIR"
+  git clone --depth 1 "$SRC_REPO" "$SRC_DIR" || {
+    echo -e "${RED}Échec du clonage du dépôt officiel.${RESET}"
+    exit 1
+  }
+
+  mkdir -p "$SRC_DIR/build"
+  cd "$SRC_DIR/build"
+
+  echo "Compilation de badvpn-udpgw..."
+  cmake .. -DBUILD_NOTHING_BY_DEFAULT=1 -DBUILD_UDPGW=1 || {
+    echo -e "${RED}Échec de la configuration cmake.${RESET}"
+    exit 1
+  }
+  make -j"$(nproc)" || {
+    echo -e "${RED}Échec de la compilation.${RESET}"
+    exit 1
+  }
+
+  if [ ! -f "udpgw/badvpn-udpgw" ]; then
+    echo -e "${RED}Binaire compilé introuvable après build.${RESET}"
+    exit 1
   fi
-  chmod +x "$BIN_PATH"
+
+  install -m 0755 udpgw/badvpn-udpgw "$BIN_PATH"
+  cd /
+  rm -rf "$SRC_DIR"
+
+  # Vérification finale : binaire ELF valide et exécutable
+  if ! file "$BIN_PATH" | grep -q ELF; then
+    echo -e "${RED}Erreur : le binaire compilé n'est pas valide.${RESET}"
+    rm -f "$BIN_PATH"
+    exit 1
+  fi
+  echo -e "${GREEN}Binaire compilé et installé avec succès dans $BIN_PATH${RESET}"
 else
   echo -e "${GREEN}BadVPN déjà installé sur $BIN_PATH.${RESET}"
 fi
 
-# Arrêter instance existante si elle tourne
-pkill badvpn-udpgw 2>/dev/null || true
+# Arrêter toute instance existante
+pkill -f badvpn-udpgw 2>/dev/null || true
 sleep 1
 
-echo "Écoute sur $LISTEN_ADDR:$PORT"
-
-# Création du service systemd
-cat > "$SYSTEMD_UNIT" <<EOF
+# ==== Service systemd template (une instance par port) ====
+cat > /etc/systemd/system/badvpn@.service <<EOF
 [Unit]
-Description=BadVPN UDP Gateway
+Description=BadVPN UDP Gateway (port %i)
 After=network.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=$BIN_PATH --listen-addr $LISTEN_ADDR:$PORT --max-clients 1000 --max-connections-for-client 10
+ExecStart=$BIN_PATH --listen-addr $LISTEN_ADDR:%i --max-clients 1000 --max-connections-for-client 10
 Restart=always
 RestartSec=5
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=badvpn
+SyslogIdentifier=badvpn-%i
 LimitNOFILE=1048576
 
 [Install]
@@ -80,36 +105,64 @@ WantedBy=multi-user.target
 EOF
 
 systemctl daemon-reload
-systemctl enable badvpn.service
-if ! systemctl restart badvpn.service; then
-  echo -e "${RED}Erreur lors du démarrage du service.${RESET}"
-  echo "[$(date '+%Y-%m-%d %H:%M:%S')] INSTALL_FAILED: service_start" >> "$LOG_FILE"
-  exit 1
+
+FAILED=0
+for PORT in "${PORTS[@]}"; do
+  systemctl enable --now "badvpn@${PORT}.service"
+  sleep 1
+  if systemctl is-active --quiet "badvpn@${PORT}.service"; then
+    echo -e "${GREEN}badvpn@${PORT} actif${RESET}"
+  else
+    echo -e "${RED}badvpn@${PORT} a échoué${RESET}"
+    FAILED=1
+  fi
+done
+
+# ==== Ouverture des ports UDP via nftables (table dédiée) ====
+/usr/local/bin/init-nftables.sh
+
+TMP_NFT=$(mktemp)
+cat > "$TMP_NFT" << EOF
+table inet badvpn {
+    chain input {
+        type filter hook input priority 0; policy accept;
+        udp dport { ${PORTS[0]}, ${PORTS[1]}, ${PORTS[2]} } accept
+    }
+    chain output {
+        type filter hook output priority 0; policy accept;
+        udp sport { ${PORTS[0]}, ${PORTS[1]}, ${PORTS[2]} } accept
+    }
+}
+EOF
+
+if nft -c -f "$TMP_NFT"; then
+    mv "$TMP_NFT" /etc/nftables/badvpn.nft
+    systemctl daemon-reload
+    systemctl enable --now nftables-tunnel@badvpn.service
+    systemctl restart nftables-tunnel@badvpn.service
+    echo -e "${GREEN}Table nftables badvpn chargée et persistée${RESET}"
+else
+    echo -e "${RED}Erreur de syntaxe nftables — table badvpn non appliquée${RESET}"
+    rm -f "$TMP_NFT"
+    exit 1
 fi
 
-# ==== Ouverture du port UDP via iptables persistantes ====
-iptables -C INPUT -p udp --dport "$PORT" -j ACCEPT 2>/dev/null || iptables -I INPUT -p udp --dport "$PORT" -j ACCEPT
-iptables -C OUTPUT -p udp --sport "$PORT" -j ACCEPT 2>/dev/null || iptables -I OUTPUT -p udp --sport "$PORT" -j ACCEPT
-
-iptables-save | tee /etc/iptables/rules.v4 >/dev/null
-systemctl restart netfilter-persistent 2>/dev/null || true
-
-# Vérification finale
-if systemctl is-active --quiet badvpn.service; then
-  echo -e "${GREEN}BadVPN installé et actif sur le port UDP $PORT.${RESET}"
+# ==== Vérification finale ====
+if [ "$FAILED" -eq 0 ]; then
   echo "+--------------------------------------------+"
   echo "|           INSTALLATION RÉUSSIE             |"
   echo "+--------------------------------------------+"
 else
-  echo -e "${RED}Le service BadVPN n'est pas actif après démarrage.${RESET}"
-  echo "[$(date '+%Y-%m-%d %H:%M:%S')] INSTALL_FAILED: startup" >> "$LOG_FILE"
-  exit 1
+  echo -e "${RED}Une ou plusieurs instances BadVPN n'ont pas démarré.${RESET}"
+  echo "[$(date '+%Y-%m-%d %H:%M:%S')] INSTALL_PARTIAL_FAILURE" >> "$LOG_FILE"
 fi
 
 # Résumé final
 echo -e "\n${CYAN}Résumé d'installation :${RESET}"
-echo "  ➤ Port UDP    : $PORT"
-echo "  ➤ Écoute sur  : $LISTEN_ADDR:$PORT"
-echo "  ➤ Service     : badvpn.service"
+echo "  ➤ Binaire     : $BIN_PATH (compilé depuis les sources officielles)"
+echo "  ➤ Ports UDP   : ${PORTS[*]}"
+echo "  ➤ Écoute sur  : $LISTEN_ADDR"
+echo "  ➤ Services    : badvpn@7100, badvpn@7200, badvpn@7300"
+echo "  ➤ Table nftables : badvpn (/etc/nftables/badvpn.nft)"
 echo "  ➤ Logs        : $LOG_FILE"
-echo -e "\nInstallation terminée avec succès."
+echo -e "\nInstallation terminée."
