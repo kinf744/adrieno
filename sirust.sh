@@ -364,12 +364,11 @@ install_zivpn() {
 
   systemctl daemon-reload && systemctl enable "$ZIVPN_SERVICE"
 
-  # Firewall / NAT
-  /usr/local/bin/init-nftables.sh
+  # 4️⃣ NFTABLES - table dédiée avec validation avant écriture
+/usr/local/bin/init-nftables.sh
 
-  nft delete table inet zivpn 2>/dev/null || true
-
-  nft -f - << EOF
+TMP_NFT=$(mktemp)
+cat > "$TMP_NFT" << 'EOF'
 table inet zivpn {
     chain input {
         type filter hook input priority 0; policy accept;
@@ -383,8 +382,16 @@ table inet zivpn {
 }
 EOF
 
-  nft list table inet zivpn > /etc/nftables/zivpn.nft
-  systemctl reload nftables 2>/dev/null || systemctl restart nftables
+if nft -c -f "$TMP_NFT"; then
+    mv "$TMP_NFT" /etc/nftables/zivpn.nft
+    systemctl daemon-reload
+    systemctl enable --now nftables-tunnel@zivpn.service
+    systemctl restart nftables-tunnel@zivpn.service
+    echo "✅ Table nftables zivpn chargée et persistée"
+else
+    echo "❌ Erreur de syntaxe nftables — table zivpn non appliquée"
+    rm -f "$TMP_NFT"
+fi
 
   # Optimisations réseau complètes (BBR + buffers 67Mo + FQ qdisc)
   apply_network_optimizations
@@ -523,11 +530,11 @@ fix_zivpn() {
 
   systemctl reset-failed zivpn.service 2>/dev/null || true
 
-  /usr/local/bin/init-nftables.sh
+  # 4️⃣ NFTABLES - table dédiée avec validation avant écriture
+/usr/local/bin/init-nftables.sh
 
-  nft delete table inet zivpn 2>/dev/null || true
-
-  nft -f - << EOF
+TMP_NFT=$(mktemp)
+cat > "$TMP_NFT" << 'EOF'
 table inet zivpn {
     chain input {
         type filter hook input priority 0; policy accept;
@@ -541,8 +548,16 @@ table inet zivpn {
 }
 EOF
 
-  nft list table inet zivpn > /etc/nftables/zivpn.nft
-  systemctl reload nftables 2>/dev/null || systemctl restart nftables
+if nft -c -f "$TMP_NFT"; then
+    mv "$TMP_NFT" /etc/nftables/zivpn.nft
+    systemctl daemon-reload
+    systemctl enable --now nftables-tunnel@zivpn.service
+    systemctl restart nftables-tunnel@zivpn.service
+    echo "✅ Table nftables zivpn chargée et persistée"
+else
+    echo "❌ Erreur de syntaxe nftables — table zivpn non appliquée"
+    rm -f "$TMP_NFT"
+fi
 
   # Réappliquer les optimisations réseau
   apply_network_optimizations
