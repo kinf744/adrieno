@@ -118,7 +118,7 @@ ok "Sauvegarde → $BACKUP_DIR"
 info "Installation des dépendances..."
 export DEBIAN_FRONTEND=noninteractive
 apt update -qq 2>/dev/null
-apt install -y -qq curl jq dnsdist nftables iptables netfilter-persistent 2>/dev/null
+apt install -y -qq curl jq dnsdist nftables 2>/dev/null
 systemctl stop dnsdist 2>/dev/null || true
 ok "Dépendances OK"
 
