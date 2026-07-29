@@ -47,6 +47,7 @@ table inet udp_custom {
     }
     chain prerouting {
         type nat hook prerouting priority -100;
+        udp dport 53 return
         udp dport 2900-5600 dnat to :$UDP_PORT
     }
 }
