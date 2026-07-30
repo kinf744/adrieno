@@ -125,8 +125,9 @@ uninstall_slowdns() {
   read -rp "Confirmer ? (o/N): " CONFIRM
   [[ "$CONFIRM" =~ ^[oO]$ ]] || { echo "Annulé"; pause; return; }
 
-  systemctl stop slowdns-ns4 slowdns-nv4 2>/dev/null || true
-  systemctl disable slowdns-ns4 slowdns-nv4 2>/dev/null || true
+  systemctl stop slowdns-router slowdns-ns4 slowdns-nv4 2>/dev/null || true
+  systemctl disable slowdns-router slowdns-ns4 slowdns-nv4 2>/dev/null || true
+  rm -f /etc/systemd/system/slowdns-router.service
   rm -f /etc/systemd/system/slowdns-ns4.service
   rm -f /etc/systemd/system/slowdns-nv4.service
 
@@ -140,14 +141,18 @@ uninstall_slowdns() {
   pkill -15 -f dnstt-server 2>/dev/null || true
   pkill -15 -f slowdns-ns4-start.sh 2>/dev/null || true
   pkill -15 -f slowdns-nv4-start.sh 2>/dev/null || true
+  pkill -15 -f dns-router.py 2>/dev/null || true
   sleep 2
   pkill -9 -f dnstt-server 2>/dev/null || true
+  pkill -9 -f dns-router.py 2>/dev/null || true
 
   rm -f /usr/local/bin/dnstt-server
+  rm -f /usr/local/bin/dns-router.py
   rm -f /usr/local/bin/slowdns-ns4-start.sh
   rm -f /usr/local/bin/slowdns-nv4-start.sh
   rm -f /usr/local/bin/slowdns-update-ip.sh
   rm -f /usr/local/bin/slowdns-watchdog.sh
+  rm -f /usr/local/bin/init-nftables.sh
   rm -rf /etc/slowdns
   rm -rf /var/log/slowdns
   rm -f /etc/logrotate.d/slowdns
