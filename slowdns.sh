@@ -14,6 +14,7 @@ BACKUP_DIR="/root/backup-slowdns-$(date +%Y%m%d-%H%M%S)"
 SERVER_KEY="$SLOWDNS_DIR/server.key"
 SERVER_PUB="$SLOWDNS_DIR/server.pub"
 CONFIG_FILE="$SLOWDNS_DIR/ns.conf"
+ROUTER_PY="/usr/local/bin/dns-router.py"
 
 DOMAIN="${DOMAIN:-kingom.ggff.net}"
 IP_PUBLIC="${IP_PUBLIC:-$(curl -s ipv4.icanhazip.com || echo "127.0.0.1")}"
@@ -21,7 +22,7 @@ BACKEND1_TARGET="${BACKEND1_TARGET:-127.0.0.1:109}"
 BACKEND2_TARGET="${BACKEND2_TARGET:-127.0.0.1:5401}"
 PORT1="${PORT1:-5353}"
 PORT2="${PORT2:-5354}"
-DNSDIST_PORT="${DNSDIST_PORT:-5300}"
+ROUTER_PORT="${ROUTER_PORT:-5300}"  # Le routeur Python écoutera sur ce port
 
 DNSTT_PRIV_KEY="4ab3af05fc004cb69d50c89de2cd5d138be1c397a55788b8867088e801f7fcaa"
 DNSTT_PUB_KEY="2cb39d63928451bd67f5954ffa5ac16c8d903562a10c4b21756de4f1a82d581c"
@@ -35,7 +36,7 @@ clear
 echo -e "${C}${B}"
 cat << 'EOF'
   ╔══════════════════════════════════════════════════╗
-  ║         SlowDNS v3 — Dual-Instance Setup         ║
+  ║      SlowDNS v3 — Routeur Python Edition         ║
   ╚══════════════════════════════════════════════════╝
 EOF
 echo -e "${NC}"
@@ -100,14 +101,14 @@ fi
 printf 'MODE=%s\nNS4=%s\nNV4=%s\nDOMAIN=%s\nIP_PUBLIC=%s\n' "$MODE" "$NS4" "$NV4" "$DOMAIN" "$IP_PUBLIC" > "$SLOWDNS_DIR/install.env"
 
 sep
-echo -e "  ${C}Port 53${NC} → nftables DNAT → ${C}Port $DNSDIST_PORT${NC} (dnsdist)"
+echo -e "  ${C}Port 53${NC} → nftables DNAT → ${C}Port $ROUTER_PORT${NC} (routeur Python)"
 echo -e "      ├── ${Y}$NS4${NC} → SlowDNS #1 (port $PORT1) → ${G}$BACKEND1_TARGET${NC}"
 echo -e "      └── ${Y}$NV4${NC} → SlowDNS #2 (port $PORT2) → ${G}$BACKEND2_TARGET${NC}"
 sep
 
 info "Sauvegarde..."
 mkdir -p "$BACKUP_DIR"
-for f in /etc/nftables.conf /etc/iptables/rules.v4 /etc/sysctl.d/99-slowdns.conf /etc/dnsdist/dnsdist.conf; do
+for f in /etc/nftables.conf /etc/iptables/rules.v4 /etc/sysctl.d/99-slowdns.conf; do
   [[ -f "$f" ]] && cp -a "$f" "$BACKUP_DIR/" 2>/dev/null
 done
 [[ -d "$SLOWDNS_DIR" ]] && cp -a "$SLOWDNS_DIR" "$BACKUP_DIR/slowdns/" 2>/dev/null
@@ -118,9 +119,17 @@ ok "Sauvegarde → $BACKUP_DIR"
 info "Installation des dépendances..."
 export DEBIAN_FRONTEND=noninteractive
 apt update -qq 2>/dev/null
-apt install -y -qq curl jq dnsdist nftables 2>/dev/null
-systemctl stop dnsdist 2>/dev/null || true
+apt install -y -qq curl jq nftables python3 python3-pip 2>/dev/null
 ok "Dépendances OK"
+
+# Supprimer dnsdist s'il est installé
+if dpkg -l | grep -q dnsdist; then
+  info "Suppression de dnsdist..."
+  systemctl stop dnsdist 2>/dev/null || true
+  systemctl disable dnsdist 2>/dev/null || true
+  apt remove -y dnsdist 2>/dev/null || true
+  ok "dnsdist supprimé"
+fi
 
 if [[ ! -x "$SLOWDNS_BIN" ]]; then
   info "Téléchargement dnstt-server..."
@@ -146,13 +155,152 @@ ok "Clés OK"
 echo "$NS4" > "$CONFIG_FILE"
 echo "$NV4" > "$SLOWDNS_DIR/nv4/ns.conf"
 
+info "Création du routeur Python..."
+
+cat > "$ROUTER_PY" << 'PYEOF'
+#!/usr/bin/env python3
+import socket
+import sys
+import logging
+import select
+import time
+from datetime import datetime
+
+# Configuration
+LISTEN_IP = "0.0.0.0"
+LISTEN_PORT = 5300
+TUNNEL_HOST = "127.0.0.1"
+TUNNEL_PORT1 = 5353  # Instance SSH
+TUNNEL_PORT2 = 5354  # Instance V2Ray
+
+# Domaines des tunnels
+NS4 = "ns4.$DOMAIN"
+NV4 = "nv4.$DOMAIN"
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('/var/log/slowdns/router.log'),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
+
+def get_tunnel_port(domain):
+    """Détermine le port de tunnel en fonction du domaine"""
+    if NS4 in domain:
+        return TUNNEL_PORT1
+    elif NV4 in domain:
+        return TUNNEL_PORT2
+    return None
+
+def main():
+    # Création du socket
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    sock.bind((LISTEN_IP, LISTEN_PORT))
+    sock.setblocking(False)
+    
+    logger.info(f"Routeur DNS démarré sur {LISTEN_IP}:{LISTEN_PORT}")
+    logger.info(f"Tunnel SSH: {NS4} -> {TUNNEL_HOST}:{TUNNEL_PORT1}")
+    logger.info(f"Tunnel V2Ray: {NV4} -> {TUNNEL_HOST}:{TUNNEL_PORT2}")
+    
+    # Cache pour éviter de reparser les requêtes DNS
+    pending_requests = {}
+    
+    while True:
+        try:
+            # Utilisation de select pour gérer l'asynchronisme
+            ready, _, _ = select.select([sock], [], [], 1.0)
+            
+            if not ready:
+                continue
+                
+            data, client_addr = sock.recvfrom(4096)
+            
+            # Extraire le domaine de la requête DNS (format simplifié)
+            # Dans un vrai routeur, on parserait proprement le DNS
+            try:
+                # Recherche du nom de domaine dans la requête
+                # Position approximative après l'en-tête DNS
+                offset = 12  # En-tête DNS = 12 octets
+                domain_parts = []
+                while True:
+                    length = data[offset]
+                    if length == 0:
+                        break
+                    offset += 1
+                    domain_parts.append(data[offset:offset+length].decode('ascii', errors='ignore'))
+                    offset += length
+                domain = '.'.join(domain_parts)
+                logger.debug(f"Requête pour: {domain} de {client_addr}")
+                
+                # Déterminer le port de tunnel
+                tunnel_port = get_tunnel_port(domain)
+                if tunnel_port is None:
+                    # Refuser les requêtes non autorisées
+                    # Envoyer une réponse REFUSED (RCODE=5)
+                    response = data[:2] + b'\x81\x85' + data[4:12] + data[12:]
+                    # Ajuster l'offset pour répondre REFUSED
+                    sock.sendto(response, client_addr)
+                    logger.warning(f"Domaine non autorisé: {domain} -> REFUSED")
+                    continue
+                
+                # Forward vers le bon tunnel
+                sock.sendto(data, (TUNNEL_HOST, tunnel_port))
+                
+                # Attendre la réponse du tunnel
+                # On utilise un timeout court car le tunnel répond rapidement
+                # En production, on pourrait garder le socket en attente avec select
+                response, _ = sock.recvfrom(4096)
+                sock.sendto(response, client_addr)
+                
+                logger.debug(f"Requête relayée: {domain} -> port {tunnel_port}")
+                
+            except UnicodeDecodeError:
+                # Si on ne peut pas parser, on refuse
+                logger.warning(f"Requête malformée de {client_addr} -> REFUSED")
+                response = data[:2] + b'\x81\x85' + data[4:12] + data[12:]
+                sock.sendto(response, client_addr)
+            except Exception as e:
+                logger.error(f"Erreur de traitement: {e}")
+                # En cas d'erreur, on répond REFUSED
+                try:
+                    response = data[:2] + b'\x81\x85' + data[4:12] + data[12:]
+                    sock.sendto(response, client_addr)
+                except:
+                    pass
+                    
+        except KeyboardInterrupt:
+            logger.info("Arrêt du routeur")
+            break
+        except Exception as e:
+            logger.error(f"Erreur générale: {e}")
+            time.sleep(1)
+
+if __name__ == "__main__":
+    # Remplacer les variables shell par leurs valeurs réelles
+    import os
+    globals()['NS4'] = os.getenv('NS4', 'ns4.kingom.ggff.net')
+    globals()['NV4'] = os.getenv('NV4', 'nv4.kingom.ggff.net')
+    main()
+PYEOF
+
+# Injection des variables réelles dans le routeur
+sed -i "s/NS4 = \"ns4\.\$DOMAIN\"/NS4 = \"$NS4\"/" "$ROUTER_PY"
+sed -i "s/NV4 = \"nv4\.\$DOMAIN\"/NV4 = \"$NV4\"/" "$ROUTER_PY"
+chmod +x "$ROUTER_PY"
+
+ok "Routeur Python créé: $ROUTER_PY"
+
 info "Création des scripts de démarrage..."
 
-cat > /usr/local/bin/slowdns-ns4-start.sh << 'STARTEOF'
+cat > /usr/local/bin/slowdns-ns4-start.sh << STARTEOF
 #!/bin/bash
 NS=$(cat /etc/slowdns/ns.conf)
 echo "[$(date '+%Y-%m-%d %H:%M:%S')] slowdns-ns4 start NS=$NS" >> /var/log/slowdns/ns4.log
-exec /usr/local/bin/dnstt-server -udp 0.0.0.0:5353 -privkey-file /etc/slowdns/server.key "$NS" 127.0.0.1:109
+exec /usr/local/bin/dnstt-server -udp 0.0.0.0:${PORT1} -privkey-file /etc/slowdns/server.key "\$NS" ${BACKEND1_TARGET}
 STARTEOF
 
 cat > /usr/local/bin/slowdns-nv4-start.sh << STARTEOF
@@ -165,6 +313,31 @@ chmod +x /usr/local/bin/slowdns-ns4-start.sh /usr/local/bin/slowdns-nv4-start.sh
 ok "Scripts OK"
 
 info "Création des services systemd..."
+
+# Service pour le routeur Python
+cat > /etc/systemd/system/slowdns-router.service << ROUTERSERV
+[Unit]
+Description=Routeur DNS Python
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Environment="NS4=$NS4"
+Environment="NV4=$NV4"
+Environment="PYTHONUNBUFFERED=1"
+ExecStart=/usr/bin/python3 $ROUTER_PY
+Restart=always
+RestartSec=3
+StartLimitBurst=0
+LimitNOFILE=1048576
+StandardOutput=append:/var/log/slowdns/router.log
+StandardError=append:/var/log/slowdns/router.log
+
+[Install]
+WantedBy=multi-user.target
+ROUTERSERV
 
 for inst in ns4 nv4; do
   logfile="/var/log/slowdns/$inst.log"
@@ -195,64 +368,32 @@ SERVICEEOF
 done
 ok "Services systemd OK"
 
-info "Override Restart=always pour dnsdist..."
-mkdir -p /etc/systemd/system/dnsdist.service.d
-cat > /etc/systemd/system/dnsdist.service.d/restart.conf << 'OVERRIDEEOF'
-[Service]
-Restart=always
-RestartSec=5
-StartLimitBurst=0
-StartLimitIntervalSec=0
-OVERRIDEEOF
-ok "dnsdist Restart=always OK"
-
-info "Configuration dnsdist..."
-IPV6_DISABLED=$(cat /proc/sys/net/ipv6/conf/all/disable_ipv6 2>/dev/null || echo "1")
-if [[ "$IPV6_DISABLED" == "0" ]]; then
-  DNSDIST_IPV6_LINE="addLocal(\"[::]:${DNSDIST_PORT}\")"
-  ok "IPv6 actif — dnsdist écoute aussi sur [::]:$DNSDIST_PORT"
-else
-  DNSDIST_IPV6_LINE=""
-  warn "IPv6 désactivé — dnsdist IPv4 uniquement"
-fi
-
-cat > /etc/dnsdist/dnsdist.conf << DNSEOF
-setSecurityPollSuffix("")
-setACL({"0.0.0.0/0", "::/0"})
-addLocal("0.0.0.0:$DNSDIST_PORT")
-${DNSDIST_IPV6_LINE}
-newServer({address="127.0.0.1:$PORT1", pool="ns4"})
-newServer({address="127.0.0.1:$PORT2", pool="nv4"})
-addAction(makeRule("$NS4."), PoolAction("ns4"))
-addAction(makeRule("$NV4."), PoolAction("nv4"))
-addAction(AllRule(), RCodeAction(5))
-DNSEOF
-
-DNSDIST_CHECK=$(dnsdist --check-config 2>&1 || true)
-if echo "$DNSDIST_CHECK" | grep -qi "error"; then
-  warn "Config dnsdist à vérifier : $DNSDIST_CHECK"
-else
-  ok "Config dnsdist valide"
-fi
-
 info "Configuration nftables..."
 
-/usr/local/bin/init-nftables.sh
+cat > /usr/local/bin/init-nftables.sh << NFTINIT
+#!/bin/bash
+# Cleanup et rechargement des règles
+nft flush ruleset 2>/dev/null || true
+nft -f /etc/nftables/slowdns.nft 2>/dev/null || true
+NFTINIT
+chmod +x /usr/local/bin/init-nftables.sh
+
+mkdir -p /etc/nftables
 
 TMP_NFT=$(mktemp)
 cat > "$TMP_NFT" << NFTEOF
 table inet slowdns {
 	chain prerouting {
 		type nat hook prerouting priority -100;
-		udp dport 53 redirect to :${DNSDIST_PORT}
-		tcp dport 53 redirect to :${DNSDIST_PORT}
+		udp dport 53 redirect to :${ROUTER_PORT}
+		tcp dport 53 redirect to :${ROUTER_PORT}
 	}
 	chain input {
 		type filter hook input priority 0; policy accept;
 		udp dport 53 accept
-		udp dport ${DNSDIST_PORT} accept
-		udp dport 5353 accept
-		udp dport 5354 accept
+		udp dport ${ROUTER_PORT} accept
+		udp dport ${PORT1} accept
+		udp dport ${PORT2} accept
 		tcp dport 109 accept
 		tcp dport 5401 accept
 	}
@@ -261,9 +402,8 @@ NFTEOF
 
 if nft -c -f "$TMP_NFT"; then
     mv "$TMP_NFT" /etc/nftables/slowdns.nft
-    systemctl daemon-reload
-    systemctl enable --now nftables-tunnel@slowdns.service
-    systemctl restart nftables-tunnel@slowdns.service
+    chmod +x /usr/local/bin/init-nftables.sh
+    /usr/local/bin/init-nftables.sh
     ok "Table nftables slowdns chargée et persistée"
 else
     err "Erreur nftables"
@@ -296,19 +436,28 @@ cat > /etc/logrotate.d/slowdns << 'LOGEOF'
 LOGEOF
 ok "logrotate OK"
 
-apt-mark hold dnsdist 2>/dev/null && ok "dnsdist verrouillé" || warn "Impossible de verrouiller dnsdist"
-
 WATCHDOG_SCRIPT="/usr/local/bin/slowdns-watchdog.sh"
 cat > "$WATCHDOG_SCRIPT" << WDEOF
 #!/bin/bash
 LOG=/var/log/slowdns/watchdog.log
 ts() { date '+%Y-%m-%d %H:%M:%S'; }
-for svc in dnsdist slowdns-ns4 slowdns-nv4; do
+for svc in slowdns-router slowdns-ns4 slowdns-nv4; do
   systemctl is-active --quiet "\$svc" || { systemctl restart "\$svc"; echo "[\$(ts)] \$svc redémarré" >> "\$LOG"; }
 done
-ss -ulpn | grep -q ":${PORT1} " || { systemctl restart slowdns-ns4; echo "[\$(ts)] slowdns-ns4 port ${PORT1} absent — redémarré" >> "\$LOG"; }
-ss -ulpn | grep -q ":${PORT2} " || { systemctl restart slowdns-nv4; echo "[\$(ts)] slowdns-nv4 port ${PORT2} absent — redémarré" >> "\$LOG"; }
-ss -ulpn | grep -q ":${DNSDIST_PORT} " || { systemctl restart dnsdist; echo "[\$(ts)] dnsdist port ${DNSDIST_PORT} absent — redémarré" >> "\$LOG"; }
+for p in ${ROUTER_PORT} ${PORT1} ${PORT2}; do
+  ss -ulpn | grep -q ":\$p " || { 
+    if [ "\$p" == "${ROUTER_PORT}" ]; then
+      systemctl restart slowdns-router
+      echo "[\$(ts)] slowdns-router port \$p absent — redémarré" >> "\$LOG"
+    elif [ "\$p" == "${PORT1}" ]; then
+      systemctl restart slowdns-ns4
+      echo "[\$(ts)] slowdns-ns4 port \$p absent — redémarré" >> "\$LOG"
+    elif [ "\$p" == "${PORT2}" ]; then
+      systemctl restart slowdns-nv4
+      echo "[\$(ts)] slowdns-nv4 port \$p absent — redémarré" >> "\$LOG"
+    fi
+  }
+done
 WDEOF
 chmod +x "$WATCHDOG_SCRIPT"
 CRON_JOB="*/15 * * * * $WATCHDOG_SCRIPT"
@@ -348,10 +497,10 @@ fi
 info "Démarrage des services..."
 systemctl daemon-reload
 
-for svc in dnsdist slowdns-ns4 slowdns-nv4; do
+for svc in slowdns-router slowdns-ns4 slowdns-nv4; do
   systemctl enable "$svc" 2>/dev/null || true
   systemctl restart "$svc" 2>/dev/null || true
-  sleep 1
+  sleep 2
   if systemctl is-active --quiet "$svc"; then
     ok "$svc → actif"
   else
@@ -362,17 +511,17 @@ done
 sep
 echo -e "  ${B}VÉRIFICATION FINALE${NC}"
 echo ""
-for svc in dnsdist slowdns-ns4 slowdns-nv4; do
+for svc in slowdns-router slowdns-ns4 slowdns-nv4; do
   status=$(systemctl is-active "$svc" 2>/dev/null)
   [[ "$status" == "active" ]] && ok "$svc : $status" || err "$svc : $status"
 done
 
 echo ""
 echo -e "  ${C}Ports :${NC}"
-for p in $DNSDIST_PORT $PORT1 $PORT2 5401 22; do
+for p in $ROUTER_PORT $PORT1 $PORT2 5401 22; do
   ss -tulpn 2>/dev/null | grep -q ":$p " && ok "Port $p OK" || warn "Port $p absent"
 done
-nft list ruleset 2>/dev/null | grep -q "dport 53 redirect" && ok "Port 53 DNAT → $DNSDIST_PORT OK" || warn "Règle DNAT 53 absente"
+nft list ruleset 2>/dev/null | grep -q "dport 53 redirect" && ok "Port 53 DNAT → $ROUTER_PORT OK" || warn "Règle DNAT 53 absente"
 
 echo ""
 echo -e "  ${C}Tests DNS :${NC}"
@@ -381,27 +530,27 @@ echo -e "  dig abc.$NV4 @127.0.0.1  → NXDOMAIN"
 echo -e "  dig other.com @127.0.0.1 → REFUSED"
 echo ""
 echo -e "  ${C}Logs :${NC}"
+echo -e "  tail -f /var/log/slowdns/router.log"
 echo -e "  tail -f /var/log/slowdns/ns4.log"
 echo -e "  tail -f /var/log/slowdns/nv4.log"
 echo -e "  tail -f /var/log/slowdns/watchdog.log"
 
 sep
 echo -e "  ${Y}Rollback :${NC} $BACKUP_DIR"
-echo -e "  systemctl stop slowdns-ns4 slowdns-nv4 dnsdist"
-echo -e "  systemctl disable slowdns-ns4 slowdns-nv4 dnsdist"
+echo -e "  systemctl stop slowdns-router slowdns-ns4 slowdns-nv4"
+echo -e "  systemctl disable slowdns-router slowdns-ns4 slowdns-nv4"
 echo -e "  rm -f /etc/systemd/system/slowdns-*.service"
-echo -e "  rm -f /etc/systemd/system/dnsdist.service.d/restart.conf"
 echo -e "  rm -f $SLOWDNS_BIN /usr/local/bin/slowdns-*"
-echo -e "  rm -f /etc/dnsdist/dnsdist.conf /etc/logrotate.d/slowdns"
+echo -e "  rm -f /etc/logrotate.d/slowdns"
 echo -e "  chattr -i /etc/resolv.conf"
 echo -e "  rm -f /etc/sysctl.d/99-slowdns.conf"
 echo -e "  nft delete table inet slowdns"
 echo -e "  rm -f /etc/nftables/slowdns.nft"
-echo -e "  systemctl disable --now nftables-tunnel@slowdns.service"
 echo -e "  systemctl daemon-reload"
 
 sep
 echo -e "  ${G}${B}Installation terminée.${NC}"
-echo -e "  Instance #1 : ${Y}$NS4${NC} → SSH:22"
+echo -e "  Routeur Python : ${Y}Port $ROUTER_PORT${NC}"
+echo -e "  Instance #1 : ${Y}$NS4${NC} → SSH:109"
 echo -e "  Instance #2 : ${Y}$NV4${NC} → V2Ray:5401"
 echo ""
