@@ -125,16 +125,21 @@ uninstall_slowdns() {
   read -rp "Confirmer ? (o/N): " CONFIRM
   [[ "$CONFIRM" =~ ^[oO]$ ]] || { echo "Annulé"; pause; return; }
 
-  systemctl stop slowdns-ns4 slowdns-nv4 slowdns-router 2>/dev/null || true
-  systemctl disable slowdns-ns4 slowdns-nv4 slowdns-router 2>/dev/null || true
+  systemctl stop slowdns-ns4 slowdns-nv4 2>/dev/null || true
+  systemctl disable slowdns-ns4 slowdns-nv4 2>/dev/null || true
   rm -f /etc/systemd/system/slowdns-ns4.service
   rm -f /etc/systemd/system/slowdns-nv4.service
-  rm -f /etc/systemd/system/slowdns-router.service
+
+  rm -f /etc/systemd/system/dnsdist.service.d/restart.conf
+  rmdir /etc/systemd/system/dnsdist.service.d 2>/dev/null || true
+  systemctl stop dnsdist 2>/dev/null || true
+  systemctl disable dnsdist 2>/dev/null || true
 
   systemctl daemon-reload
 
   pkill -15 -f dnstt-server 2>/dev/null || true
-  pkill -15 -f slowdns-router 2>/dev/null || true
+  pkill -15 -f slowdns-ns4-start.sh 2>/dev/null || true
+  pkill -15 -f slowdns-nv4-start.sh 2>/dev/null || true
   sleep 2
   pkill -9 -f dnstt-server 2>/dev/null || true
 
@@ -146,7 +151,7 @@ uninstall_slowdns() {
   rm -rf /etc/slowdns
   rm -rf /var/log/slowdns
   rm -f /etc/logrotate.d/slowdns
-  rm -rf /root/Kighmu/slowdns-router
+  rm -f /etc/dnsdist/dnsdist.conf
 
   chattr -i /etc/resolv.conf 2>/dev/null || true
 
@@ -159,6 +164,8 @@ uninstall_slowdns() {
   rm -f /etc/nftables/slowdns.nft
   systemctl disable --now nftables-tunnel@slowdns.service 2>/dev/null || true
   systemctl daemon-reload
+
+  apt-mark unhold dnsdist 2>/dev/null || true
 
   echo "✅ SlowDNS v3 supprimé SANS toucher ZIVPN/Hysteria"
   echo "   Vérifiez : nft list tables"
