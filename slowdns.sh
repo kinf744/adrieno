@@ -374,7 +374,11 @@ for p in $DNSDIST_PORT $PORT1 $PORT2 5401 22; do
 done
 nft list ruleset 2>/dev/null | grep -q "dport 53 redirect" && ok "Port 53 DNAT → $DNSDIST_PORT OK" || warn "Règle DNAT 53 absente"
 
-
+echo ""
+echo -e "  ${C}Tests DNS :${NC}"
+echo -e "  dig abc.$NS4 @127.0.0.1  → NXDOMAIN"
+echo -e "  dig abc.$NV4 @127.0.0.1  → NXDOMAIN"
+echo -e "  dig other.com @127.0.0.1 → REFUSED"
 echo ""
 echo -e "  ${C}Logs :${NC}"
 echo -e "  tail -f /var/log/slowdns/ns4.log"
@@ -388,11 +392,16 @@ echo -e "  systemctl disable slowdns-ns4 slowdns-nv4 dnsdist"
 echo -e "  rm -f /etc/systemd/system/slowdns-*.service"
 echo -e "  rm -f /etc/systemd/system/dnsdist.service.d/restart.conf"
 echo -e "  rm -f $SLOWDNS_BIN /usr/local/bin/slowdns-*"
+echo -e "  rm -f /etc/dnsdist/dnsdist.conf /etc/logrotate.d/slowdns"
+echo -e "  chattr -i /etc/resolv.conf"
+echo -e "  rm -f /etc/sysctl.d/99-slowdns.conf"
+echo -e "  nft delete table inet slowdns"
+echo -e "  rm -f /etc/nftables/slowdns.nft"
 echo -e "  systemctl disable --now nftables-tunnel@slowdns.service"
 echo -e "  systemctl daemon-reload"
 
 sep
 echo -e "  ${G}${B}Installation terminée.${NC}"
-echo -e "  Instance #1 : ${Y}$NS4${NC} → SSH:109"
+echo -e "  Instance #1 : ${Y}$NS4${NC} → SSH:22"
 echo -e "  Instance #2 : ${Y}$NV4${NC} → V2Ray:5401"
 echo ""
